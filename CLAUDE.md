@@ -15,3 +15,8 @@ Bối cảnh nghề nghiệp đã kiểm chứng: `context/career-facts.md` (b�
 - Sau mỗi phần có bài tự kiểm tra. Chấm theo thang **Mid / Senior**, chỉ ra thiếu sót, đưa câu trả lời mẫu mức Senior (đặt tên vấn đề, cách xác nhận bằng công cụ, cách xử lý tạm thời và tận gốc).
 - User hay phản biện. Khi cần, kiểm chứng bằng tài liệu chính thống (Microsoft Learn, PostgreSQL docs, DDIA…) hoặc đọc code thật, và trả lời trung thực, kể cả khi hệ thống cũ của user không theo chuẩn.
 - Không bịa chi tiết về hệ thống user đã làm. Chưa chắc thì nói rõ và hỏi user.
+
+## Đồng bộ nhiều thiết bị
+Repo: https://github.com/hiepdq2109/interview-training (private).
+- Đầu buổi: `git pull` trước khi đọc `progress.md`.
+- Cuối buổi: sau khi ghi notes và cập nhật `progress.md`, chạy `git add -A && git commit -m "Buổi NN: <chủ đề>" && git push`.
