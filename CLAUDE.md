@@ -17,6 +17,6 @@ Bối cảnh nghề nghiệp đã kiểm chứng: `context/career-facts.md` (b�
 - Không bịa chi tiết về hệ thống user đã làm. Chưa chắc thì nói rõ và hỏi user.
 
 ## Đồng bộ nhiều thiết bị
-Repo: https://github.com/hiepdq2109/interview-training (private).
+Repo: https://github.com/github2109/interview-training (private).
 - Đầu buổi: `git pull` trước khi đọc `progress.md`.
 - Cuối buổi: sau khi ghi notes và cập nhật `progress.md`, chạy `git add -A && git commit -m "Buổi NN: <chủ đề>" && git push`.
