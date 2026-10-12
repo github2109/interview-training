@@ -2,7 +2,7 @@
 
 | Buổi | Chủ đề | Trạng thái | Ghi chú |
 |---|---|---|---|
-| 1 | Async, concurrency, DI | ✅ Xong | Async/await, `.Result`, thread-pool starvation, race condition, atomic UPDATE, Nexus, queue: **xong** (xem `notes/01-async-concurrency.md`). DI/captive dependency, `Task.WhenAll`+DbContext, connection pool, idempotency Pragmatic: **xong**. Bài 4 quest reward/outbox: Junior–Mid, cần ôn lại ở Buổi 4 (outbox, saga) |
+| 1 | Async, concurrency, DI | ✅ Xong | Async/await, `.Result`, thread-pool starvation, race condition, atomic UPDATE, Nexus, queue: **xong** (xem `notes/01-async-concurrency.md`). DI/captive dependency, `Task.WhenAll`+DbContext, connection pool, idempotency Pragmatic: **xong**. Bài 4 quest reward/outbox: lần đầu Junior–Mid, làm lại đạt Mid+ (còn thiếu: "same transaction", SessionId = thứ tự cho cùng player) |
 | 2 | ASP.NET Core pipeline và API design | ⬜ | |
 | 3 | Data: EF Core, SQL, transaction | ⬜ | Một phần isolation, lock đã gặp ở buổi 1 |
 | 4 | Caching, messaging, outbox, saga | ⬜ | Đã bàn sơ queue, SessionId, outbox (user nhầm outbox với mediator; chấp nhận mất message) |
