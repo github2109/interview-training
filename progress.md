@@ -3,7 +3,7 @@
 | Buổi | Chủ đề | Trạng thái | Ghi chú |
 |---|---|---|---|
 | 1 | Async, concurrency, DI | ✅ Xong | Async/await, `.Result`, thread-pool starvation, race condition, atomic UPDATE, Nexus, queue: **xong** (xem `notes/01-async-concurrency.md`). DI/captive dependency, `Task.WhenAll`+DbContext, connection pool, idempotency Pragmatic: **xong**. Bài 4 quest reward/outbox: lần đầu Junior–Mid, làm lại đạt Mid+ (còn thiếu: "same transaction", SessionId = thứ tự cho cùng player) |
-| 2 | ASP.NET Core pipeline và API design | ⬜ | |
+| 2 | ASP.NET Core pipeline và API design | 🟡 Lý thuyết xong | A: Mid (vị trí correlation middleware, body stream/resource filter). B, C1, C2: user bỏ qua bài tập → **ôn lại bằng câu hỏi nhanh đầu Buổi 3**. Xem `notes/02-aspnet-pipeline-api.md` |
 | 3 | Data: EF Core, SQL, transaction | ⬜ | Một phần isolation, lock đã gặp ở buổi 1 |
 | 4 | Caching, messaging, outbox, saga | ⬜ | Đã bàn sơ queue, SessionId, outbox (user nhầm outbox với mediator; chấp nhận mất message) |
 | 5 | Distributed systems và resilience | ⬜ | |
@@ -27,6 +27,8 @@
   - Trả lời thiếu con số cụ thể (vd. pods × pool vs max_connections).
 
 ## Bài tập đang chờ
+- User có xu hướng **bỏ qua bài tự kiểm tra** (Buổi 2: B, C1, C2, phần ôn a/b/c). Đầu Buổi 3 hỏi gọn 5 câu: middleware vs filter, 422 vs callback provider, repository với EF vs Dapper, over-posting, offset vs keyset.
+- Cần user xác nhận: Sweeps có class `...Repository` + interface không, có bọc SP không (để ghi `career-facts`).
 - Đầu Buổi 2: kiểm tra nhanh 3 câu: (a) check-then-act là gì, sửa sao; (b) SessionId giải quyết gì; (c) Outbox giải quyết gì.
 
 ## Lịch sử bài tập Buổi 1
