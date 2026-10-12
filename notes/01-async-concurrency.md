@@ -42,3 +42,25 @@ Dùng `IHttpClientFactory`/typed client (tránh cạn socket), đặt timeout b�
 ## 7. Queue cho balance?
 - Single-writer theo player là pattern hợp lệ, nhưng **không** dùng cho callback ví đồng bộ (provider cần kết quả ngay).
 - Queue phù hợp: thưởng, đồng bộ, thông báo, đối soát. Với dữ liệu tiền, chọn **Service Bus** (bền, có sessions FIFO theo player, DLQ, duplicate detection) thay vì Redis. Consumer vẫn phải idempotent (at-least-once).
+
+## 8. DI lifetimes và captive dependency
+- Scope = `IServiceScope`, tạo đầu request, **Dispose** cuối request (dispose luôn Scoped/Transient `IDisposable`).
+- **Captive dependency:** Singleton giữ DbContext Scoped → context sống cả process: lỗi "second operation" (không thread-safe), **change tracker phình** (chỉ giải phóng khi Dispose/`Clear()`; `SaveChanges` chỉ chuyển sang Unchanged; `DetectChanges` chậm dần), dữ liệu cũ, hoặc `ObjectDisposedException`. Nếu chỉ `AsNoTracking` thì không leak tracker.
+- Sửa: không cần Singleton thì chuyển Scoped; là **cache** thì giữ Singleton + `IDbContextFactory`/`IServiceScopeFactory`, tạo context ngắn hạn khi cache miss. Phòng ngừa: `ValidateScopes` + `ValidateOnBuild` mọi môi trường.
+- Quy tắc: **không inject service sống ngắn hơn vào service sống dài hơn.** (User từng nói ngược.)
+- Điều tra leak: `dotnet-counters` (gc-heap-size, gen-2), `dotnet-gcdump` (đếm `InternalEntityEntry`, chuỗi giữ tham chiếu).
+
+## 9. `Task.WhenAll` + DbContext
+- Chung một context → throw "second operation" ngay: async chạy đồng bộ tới await đầu tiên, task 2 đâm vào task 1. Bản chất: 1 context = 1 connection = 1 lệnh/lúc (một stream request/response; MARS chỉ xen kẽ); tracker không thread-safe → EF fail-fast.
+- Đúng: mỗi task một context (`IDbContextFactory`, `AsNoTracking`, `await using`). 170 ms → ~85 ms. `.Result` sau `WhenAll` an toàn.
+- **Không nên** khi: endpoint nóng (×3 connection/request → cạn pool), cần snapshot nhất quán (3 transaction khác nhau), DB là nút thắt, query quá nhỏ. Ưu tiên cache (danh sách game), gộp round-trip, đo trước.
+- Pool: `pods_max × MaxPoolSize ≤ max_connections − dự phòng` (4×100=400 > 200 → `53300 too many clients` lúc peak/scale-out). Hoặc PgBouncer.
+
+## 10. Idempotency callback ví (Pragmatic)
+- Key = **id của giao dịch** (provider + `reference`/transaction id), không phải roundId (một round có nhiều giao dịch: bet, result, free spin, refund). Code thật có `GetByRoundIdAsync` → cần xác minh lại cách hệ thống cũ dùng.
+- **Check và trừ tiền trong CÙNG transaction**; UNIQUE constraint là trọng tài. Check ngoài transaction = check-then-act → hai request trùng đều qua check; row lock chỉ xếp hàng, **cả hai vẫn trừ** → trừ 2 lần.
+- Giữ key: bảng giao dịch là ledger, giữ vĩnh viễn (ít nhất ≥ cửa sổ retry + đối soát của provider), không phải "vài ngày".
+- Trùng → trả **response y hệt lần đầu** (thành công, cùng transaction id, balance hiện tại), không trả lỗi (provider sẽ hiểu là thất bại → refund/khiếu nại). Kiểm tra spec provider.
+- Refund đến trước bet → ghi **tombstone** (refund đã nhận cho reference X), trả thành công không đổi tiền; bet đến sau thấy tombstone thì từ chối.
+
+> "The idempotency key is the provider's transaction reference, scoped by provider, stored with a unique constraint in the same table and the same DB transaction as the balance update — so the database, not an application-level check, decides who wins a race. A duplicate gets the original response replayed, not an error, because to the provider an error means the bet failed. Rows are kept as a permanent ledger. If a refund arrives before its bet, I store a tombstone so the late bet is rejected."
