@@ -29,7 +29,7 @@ Chỉ đưa vào CV những gì có ở đây. Thông tin mới cần kiểm ch�
 ## PlaySweeps (client: PLAYSTUDIOS) — US sweepstakes gaming platform
 - Gọi là "sweepstakes gaming platform". **Không dùng "casino", "real-money".**
 - Quy mô: **2M+ registered players** (user). DAU ~5.5–6.8K, user mới ~500–1.1K/ngày (Splunk dashboard) → **không** đưa DAU, doanh thu (~30K USD/ngày), lợi nhuận lên CV (bảo mật, công ty niêm yết NASDAQ: MYPS).
-- Backend `playsweeps-backend`: .NET 8, khoảng 150 project. User có **khoảng 1.330 commit**, nhiều nhất team. Data access dùng **Dapper + stored procedure + LINQ**, DI bằng **Autofac**. Cosmos DB, Redis, Azure (Functions, Service Bus, Event Hub, Key Vault, App Insights).
+- Backend `playsweeps-backend`: .NET 8, khoảng 150 project. User có **khoảng 1.330 commit**, nhiều nhất team. Data access dùng **Dapper + stored procedure + LINQ**, có các class `...Repository` kèm interface, bọc stored procedure (user xác nhận), DI bằng **Autofac**. Cosmos DB, Redis, Azure (Functions, Service Bus, Event Hub, Key Vault, App Insights).
 - Web `playsweeps-web`: React 18, Redux, khoảng 340 commit của user (01/2025 – 09/2026).
 - Vai trò: **feature lead** (không phải team lead), review chéo PR (lead feature nào thì review kỹ feature đó), on-call. Không phỏng vấn tuyển người.
 - Đã làm (git):

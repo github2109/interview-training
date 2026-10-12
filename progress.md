@@ -28,7 +28,6 @@
 
 ## Bài tập đang chờ
 - User có xu hướng **bỏ qua bài tự kiểm tra** (Buổi 2: B, C1, C2, phần ôn a/b/c). Đầu Buổi 3 hỏi gọn 5 câu: middleware vs filter, 422 vs callback provider, repository với EF vs Dapper, over-posting, offset vs keyset.
-- Cần user xác nhận: Sweeps có class `...Repository` + interface không, có bọc SP không (để ghi `career-facts`).
 - Đầu Buổi 2: kiểm tra nhanh 3 câu: (a) check-then-act là gì, sửa sao; (b) SessionId giải quyết gì; (c) Outbox giải quyết gì.
 
 ## Lịch sử bài tập Buổi 1
