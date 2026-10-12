@@ -2,10 +2,10 @@
 
 | Buổi | Chủ đề | Trạng thái | Ghi chú |
 |---|---|---|---|
-| 1 | Async, concurrency, DI | 🟡 Đang học | Async/await, `.Result`, thread-pool starvation, race condition, atomic UPDATE, Nexus, queue: **xong** (xem `notes/01-async-concurrency.md`). DI/captive dependency, `Task.WhenAll`+DbContext, connection pool, idempotency Pragmatic: **xong**. **Còn lại:** bài 4 (quest reward qua Service Bus), user tự nói lại câu mẫu idempotency |
+| 1 | Async, concurrency, DI | ✅ Xong | Async/await, `.Result`, thread-pool starvation, race condition, atomic UPDATE, Nexus, queue: **xong** (xem `notes/01-async-concurrency.md`). DI/captive dependency, `Task.WhenAll`+DbContext, connection pool, idempotency Pragmatic: **xong**. Bài 4 quest reward/outbox: Junior–Mid, cần ôn lại ở Buổi 4 (outbox, saga) |
 | 2 | ASP.NET Core pipeline và API design | ⬜ | |
 | 3 | Data: EF Core, SQL, transaction | ⬜ | Một phần isolation, lock đã gặp ở buổi 1 |
-| 4 | Caching, messaging, outbox, saga | ⬜ | Đã bàn sơ về queue (Service Bus vs Redis) |
+| 4 | Caching, messaging, outbox, saga | ⬜ | Đã bàn sơ queue, SessionId, outbox (user nhầm outbox với mediator; chấp nhận mất message) |
 | 5 | Distributed systems và resilience | ⬜ | |
 | 6 | Performance và observability | ⬜ | |
 | 7 | Security | ⬜ | |
@@ -21,8 +21,14 @@
   - Thứ tự ưu tiên xử lý concurrency: atomic UPDATE / rowversion trước, distributed lock sau.
   - Tiếng Anh nói (đang học PTE): hay thiếu -s ngôi 3, "is depend", "will be encountered".
   - Idempotency: hay **check ngoài transaction** (check-then-act), trả **lỗi** khi trùng thay vì replay response, chọn key quá thô (roundId).
+  - **Lặp lại lỗi check-then-act** (bài 3 và bài 4): luôn nói "INSERT with UNIQUE in the same transaction".
+  - Chấp nhận mất message cho luồng liên quan tiền; nhầm Mediator với Outbox.
+  - Trả lời một chiều (sync vs async), chưa nêu trade-off.
   - Trả lời thiếu con số cụ thể (vd. pods × pool vs max_connections).
 
-## Bài tập đang chờ user trả lời (Buổi 1)
+## Bài tập đang chờ
+- Đầu Buổi 2: kiểm tra nhanh 3 câu: (a) check-then-act là gì, sửa sao; (b) SessionId giải quyết gì; (c) Outbox giải quyết gì.
+
+## Lịch sử bài tập Buổi 1
 Bài 1–3 xong (bài 1: Senior sau khi làm lại; bài 2: user nhờ giải; bài 3: Mid).
 4. Quest reward nên xử lý đồng bộ hay qua Service Bus? Nếu qua queue, `SessionId` là gì, và chặn cộng thưởng 2 lần thế nào?
