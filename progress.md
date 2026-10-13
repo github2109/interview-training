@@ -1,5 +1,7 @@
 # Tiến độ training
 
+> **Mục tiêu hiện tại (2026-10-13): SEADEV C# Developer (ShedPro Ops Hub).** Thứ tự ưu tiên xem `job-seadev.md`.
+
 | Buổi | Chủ đề | Trạng thái | Ghi chú |
 |---|---|---|---|
 | 1 | Async, concurrency, DI | ✅ Xong | Async/await, `.Result`, thread-pool starvation, race condition, atomic UPDATE, Nexus, queue: **xong** (xem `notes/01-async-concurrency.md`). DI/captive dependency, `Task.WhenAll`+DbContext, connection pool, idempotency Pragmatic: **xong**. Bài 4 quest reward/outbox: lần đầu Junior–Mid, làm lại đạt Mid+ (còn thiếu: "same transaction", SessionId = thứ tự cho cùng player) |
