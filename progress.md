@@ -6,7 +6,7 @@
 |---|---|---|---|
 | 1 | Async, concurrency, DI | ✅ Xong | Async/await, `.Result`, thread-pool starvation, race condition, atomic UPDATE, Nexus, queue: **xong** (xem `notes/01-async-concurrency.md`). DI/captive dependency, `Task.WhenAll`+DbContext, connection pool, idempotency Pragmatic: **xong**. Bài 4 quest reward/outbox: lần đầu Junior–Mid, làm lại đạt Mid+ (còn thiếu: "same transaction", SessionId = thứ tự cho cùng player) |
 | 2 | ASP.NET Core pipeline và API design | 🟡 Lý thuyết xong | A: Mid (vị trí correlation middleware, body stream/resource filter). B, C1, C2: user bỏ qua bài tập → **ôn lại bằng câu hỏi nhanh đầu Buổi 3**. Xem `notes/02-aspnet-pipeline-api.md` |
-| 3 | Data: EF Core, SQL, transaction | ⬜ | Một phần isolation, lock đã gặp ở buổi 1 |
+| 3 | Data: EF Core, SQL, transaction | ✅ Lý thuyết xong | User hiểu sâu phần async+EF, index, parameter sniffing (hỏi rất kỹ). Bỏ qua phần lớn bài kiểm tra 3B/3C/3D. Xem `notes/03-efcore-sql.md` |
 | 4 | Caching, messaging, outbox, saga | ⬜ | Đã bàn sơ queue, SessionId, outbox (user nhầm outbox với mediator; chấp nhận mất message) |
 | 5 | Distributed systems và resilience | ⬜ | |
 | 6 | Performance và observability | ⬜ | |

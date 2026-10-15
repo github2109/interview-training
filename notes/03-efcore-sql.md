@@ -34,3 +34,9 @@
 - Không có index phù hợp → scan. SQL Server/PostgreSQL **không tự index FK**; **EF Core migration có**. DB tạo tay/legacy hay thiếu → kiểm tra đầu tiên khi tiếp quản (thiếu còn làm DELETE bảng cha scan bảng con). Missing index DMV chỉ là gợi ý.
 - **Composite index** = danh bạ (Họ, Tên), ngầm thêm clustered key. Seek được: `A=`, `A= AND B range`, `A= ORDER BY B` + TOP (không Sort, dừng sớm, hợp keyset). Không seek: chỉ `B`. Range ở cột trước → cột sau chỉ lọc lại. Thứ tự **E → S → R**. Key để tìm/sắp xếp, INCLUDE để hiển thị. `(A)` thừa khi có `(A,B)`.
 - Connection pool: Dispose = trả về pool; cạn (mặc định 100, chờ 15s) do không dispose, transaction dài, starvation, song song quá mức, pod×pool > giới hạn DB. Xem `sys.dm_exec_sessions` (nhiều sleeping), `dotnet-counters` SqlClient. Tăng Max Pool Size chỉ là giảm đau.
+
+## D. Thiết kế DB nghiệp vụ, migration an toàn
+- 3NF cho master data. **Dữ liệu giao dịch snapshot những gì đã thoả thuận** (QuoteLines: ProductName, UnitPrice, TaxRate) — đổi bảng giá không được làm đổi hợp đồng đã ký. Denormalize vì hiệu năng phải nói được ai cập nhật, trong transaction nào, phát hiện lệch thế nào.
+- Tiền: `decimal`, `DECIMAL(18,2)`, EF `HasPrecision`. Trả góp: các kỳ làm tròn, **kỳ cuối bù chênh lệch**, unit test tổng = tổng hợp đồng. Thời gian: UTC, `DateOnly`/`date` cho ngày giao, Bắc Mỹ nhiều múi giờ + DST.
+- **Expand → Migrate (backfill theo lô) → Contract**, mỗi bước một deploy, tương thích ngược (rolling deploy chạy song song bản cũ/mới). NOT NULL: thêm NULL → backfill → đổi. Đổi kiểu: cột mới. Index: ONLINE. Hàng loạt: chia lô (lock escalation ~5.000). Không `Database.Migrate()` lúc startup; script idempotent / bundle; DbUp/Flyway cho Dapper.
+- Bảng lớn: archive, partition (chỉ nhanh khi lọc theo cột partition; switch/drop thay DELETE), read replica cho báo cáo.
