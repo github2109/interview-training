@@ -66,3 +66,9 @@ User **không muốn** nêu điểm yếu/tự phê bình code Joblogic; tập t
 - **JB. Pattern & công nghệ**: multi-tenancy, microservice messaging (request/command, Service Bus, retry, idempotency), OneOf result, audit có version, document generation bằng tag, feature gating theo gói, RBAC, notification fan-out, EF6 vs EF Core, Azure Functions; map Azure→AWS.
 - **JC. 4 feature theo khung "vấn đề → hiểu nghiệp vụ → thiết kế → edge case → kiểm chứng"**, bản kể tiếng Anh + câu đào sâu + nối Ops Hub.
 - **JD. Mock interview**.
+
+## Người phỏng vấn & nguyên tắc trả lời (2026-10-16)
+- Phỏng vấn bởi **Solution Architect + Product Owner**.
+- **Không nhắc chi tiết nội bộ ShedPro** (release notes, bug, tên đối tác RTO, Ziptax…) trong câu trả lời — chỉ dùng để tự định hướng ôn tập. Được phép dựa vào phạm vi **công khai trong JD** ("quoting, sales orders, RTO contracts, production tracking, delivery scheduling", "taking over from a US partner") và nói dạng giả định + hỏi lại.
+- SA quan tâm: hiểu hệ thống, trade-off kiến trúc, multi-tenant, tích hợp, dữ liệu/tiền/thời gian, tiếp quản legacy, chất lượng (test, review).
+- PO quan tâm: hiểu nghiệp vụ, làm rõ yêu cầu, edge case, ưu tiên, giao tiếp, giao giá trị theo từng bước, xử lý thay đổi yêu cầu.
