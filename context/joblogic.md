@@ -19,11 +19,5 @@ Nguồn: `/Users/hiepdinhquang/Desktop/ExtraJob/Joblogic/joblogic-web` (git, ~13
 4. **Job Spend Limit (05–06/2026, làm cùng Harrison Nguyen)** — ước tính chi tiêu của Visit so với hạn mức của Job: banner OverLimit/InLimit (lần visit 1 so với hạn mức, visit 2+ so với **phần còn lại** sau các visit trước), cờ **RedeployRequired** khi hạn mức đổi sau khi visit đã deploy; **BO notification** (fan-out tới role Admin/JobDesk/Costing, idempotent theo `EventIdempotentId`), **CP** (Customer Portal) cho phép khách sửa spend limit, **permission** mới (Settings>Staff>Business>Job>Job Spend Limit, file mapping quyền CP). User viết `GetVisitSpendEstimateBannerMsgHandler`, phần BO noti, CP, permission, nhiều bugfix.
 - Khác: Projects Dashboard pagination, fix multi-currency, chuyển 1 component jQuery → Vue (bị revert rồi làm lại), test SchedulerController.
 
-## Điểm tự phê bình (dùng khi phỏng vấn, thể hiện tư duy Senior)
-- Previously Claimed: query DB **trong vòng lặp từng dòng invoice** → N+1; nên gom một query `GroupBy JobLineId`.
-- Notification idempotency: `AnyAsync` rồi mới gửi = **check-then-act**; hai message trùng đồng thời vẫn gửi 2 lần → nên có unique constraint (OperationId) hoặc insert-first.
-- Margin: `double.Parse(decimal.ToString())` → phụ thuộc culture, mất chính xác; nên giữ `decimal`.
-- Banner trả HTML string (`<strong>`) từ backend, tiền format cứng "£".
-
 ## ⚠️ Lệch giữa CV và code
 CV ghi "Entity Framework Core, MediatR, React". Code: **EF6**, handler tự viết (OneOf), Vue/jQuery, Azure Functions + Service Bus + MongoDB. Cần user quyết định sửa CV hoặc chuẩn bị cách nói trung thực.

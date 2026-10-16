@@ -59,3 +59,10 @@ CV gửi đi ghi: "Delivered Projects and Jobs module features for a UK field-se
 - **J3. Kỹ thuật Joblogic bị hỏi sâu**: ASP.NET MVC (Razor, model binding, anti-forgery), EF Core, MediatR (CQRS, pipeline behavior), microservice platform có sẵn, unit test, làm việc remote với team UK / code review.
 - **J4. Mock Q&A** kiểu interviewer SEADEV: "tell me about Joblogic" → follow-up → "how would you apply that to Ops Hub".
 Sau đó: domain Ops Hub (balance due, DST, PDF/template, tích hợp Stripe/Ziptax), refactoring legacy, AWS, behavioral, mock interview.
+
+## Lộ trình Joblogic → SEADEV (cập nhật 2026-10-16, theo yêu cầu user)
+User **không muốn** nêu điểm yếu/tự phê bình code Joblogic; tập trung vào việc đã làm, cách giải quyết vấn đề, độ hiểu hệ thống.
+- **JA. Business chung** Joblogic (field service) ↔ Ops Hub (shed): quote→job/order, pricing (rate, uplift, chargeable, thuế), costing & margin, contract định kỳ vs RTO, invoicing (cumulative/retention vs deposit/balance due), document template, scheduling/dispatch + mobile, approval/limit/permission, subscription gating, audit, integration.
+- **JB. Pattern & công nghệ**: multi-tenancy, microservice messaging (request/command, Service Bus, retry, idempotency), OneOf result, audit có version, document generation bằng tag, feature gating theo gói, RBAC, notification fan-out, EF6 vs EF Core, Azure Functions; map Azure→AWS.
+- **JC. 4 feature theo khung "vấn đề → hiểu nghiệp vụ → thiết kế → edge case → kiểm chứng"**, bản kể tiếng Anh + câu đào sâu + nối Ops Hub.
+- **JD. Mock interview**.
