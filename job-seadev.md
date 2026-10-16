@@ -31,3 +31,19 @@ Nguồn: https://seadev.us/career/c-developer/ (đọc 2026-10-13)
 8. **Mock interview** 45–60 phút theo JD + một bài system design nhỏ (scheduling giao hàng / RTO payment schedule).
 
 Lược bớt cho job này: distributed systems sâu, Service Bus/saga (chỉ ôn mức nói được).
+
+## Team thật: ShedPro Ops Hub (nghiên cứu 2026-10-16)
+Nguồn: release notes shedpro.co (01–10/2026), App Store "ShedPro Ops Hub" (driver app), JD.
+- **Ops Hub** = back-office vận hành cho nhà sản xuất/đại lý shed (multi-tenant, "Company", "Store Teams", Region). Web app + **Driver App** mobile (lịch giao, xác nhận giao, ảnh, thanh toán Stripe).
+- Module thấy trong release notes:
+  - **Quote** (Finalize & Lock Quote, Quote PDF có 2D floorplan, custom-build quote từ 3D)
+  - **Cash Sale** (invoice PDF, Acceptance of Contract + T&C rich text, chữ ký nhiều trang)
+  - **RTO Contract** (template PDF theo từng công ty RTO: Premier Rentals, DMD Solutions; chọn RTO option đủ điều kiện; credit check text)
+  - **Inventory** (đơn vị tồn kho, bán web, giá giảm, huỷ inventory, export)
+  - **Production** (Production Queues, sắp xếp build list thủ công)
+  - **Delivery** (lịch giao `deliveryTime` + `estimatedDeliveryOn` UTC, Delivery Confirmation file, SMS/email khi giao xong)
+  - **Thuế** (Ziptax API v6, tax suggestion theo địa chỉ), **thanh toán** (Stripe web + driver app, deposit, balance due)
+  - **Tích hợp**: đồng bộ 3D Config → Ops Hub (mapping SKU, lỗi tích hợp), ShedSuite, Zapier, WooCommerce web template
+  - Notifications email/SMS, History Notes (audit), Custom Tags, Company Settings, export dữ liệu
+- Loại bug thường gặp (gợi ý câu hỏi phỏng vấn): **DST làm sai ngày giao dự kiến**, timestamp History Notes lệch múi giờ, **balance due tính sai**, ký tự đặc biệt làm hỏng PDF, layout PDF, crash khi lưu dữ liệu nhúng, mapping SKU.
+- Hệ quả cho ôn tập: thêm **tạo tài liệu PDF/e-signature** (khớp Joblogic DocX template tags), **tích hợp bên thứ ba** (webhook, retry, idempotency — khớp Sweeps), **thời gian/múi giờ/DST**, **tính tiền: deposit/balance due/thuế**, multi-tenant settings.
