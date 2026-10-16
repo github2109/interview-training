@@ -47,3 +47,15 @@ Nguồn: release notes shedpro.co (01–10/2026), App Store "ShedPro Ops Hub" (d
   - Notifications email/SMS, History Notes (audit), Custom Tags, Company Settings, export dữ liệu
 - Loại bug thường gặp (gợi ý câu hỏi phỏng vấn): **DST làm sai ngày giao dự kiến**, timestamp History Notes lệch múi giờ, **balance due tính sai**, ký tự đặc biệt làm hỏng PDF, layout PDF, crash khi lưu dữ liệu nhúng, mapping SKU.
 - Hệ quả cho ôn tập: thêm **tạo tài liệu PDF/e-signature** (khớp Joblogic DocX template tags), **tích hợp bên thứ ba** (webhook, retry, idempotency — khớp Sweeps), **thời gian/múi giờ/DST**, **tính tiền: deposit/balance due/thuế**, multi-tenant settings.
+
+## Lộ trình cập nhật (2026-10-16) — ưu tiên Joblogic
+CV gửi đi ghi: "Delivered Projects and Jobs module features for a UK field-service management SaaS on a .NET microservice platform, including cost breakdowns, contract audit trails, pay-band rates and spend limits. Wrote unit tests… code review with the client's UK team."
+- **J1. Thu thập sự thật Joblogic** (user trả lời bảng câu hỏi) → ghi `context/joblogic.md`. Không bịa.
+- **J2. Kể dự án 2 phút + đào sâu 4 feature** (STAR tiếng Anh), mỗi feature nối sang Ops Hub:
+  - Quoted Cost Breakdown ↔ Quote pricing, Finalize & Lock Quote, balance due
+  - Customer contract + audit + DocX template tags ↔ RTO/Cash Sale PDF template theo công ty RTO, History Notes
+  - Selling Rate Times & Holidays (pay band) ↔ tính giá theo thời gian, ngày lễ, timezone/DST, lịch giao
+  - Job Spend Limit (BO notification, CP, permission) ↔ phân quyền, ngưỡng duyệt, thông báo email/SMS
+- **J3. Kỹ thuật Joblogic bị hỏi sâu**: ASP.NET MVC (Razor, model binding, anti-forgery), EF Core, MediatR (CQRS, pipeline behavior), microservice platform có sẵn, unit test, làm việc remote với team UK / code review.
+- **J4. Mock Q&A** kiểu interviewer SEADEV: "tell me about Joblogic" → follow-up → "how would you apply that to Ops Hub".
+Sau đó: domain Ops Hub (balance due, DST, PDF/template, tích hợp Stripe/Ziptax), refactoring legacy, AWS, behavioral, mock interview.
