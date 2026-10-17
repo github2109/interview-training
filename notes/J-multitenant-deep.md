@@ -38,6 +38,14 @@ Middleware (ResolveTenantSetting): TenantId (từ operation info) → ShardKey (
 - Hệ quả: dev viết `db.Visits.Where(v => v.Id == id)` không cần `TenantId`, DB tự lọc. Raw SQL/Dapper cũng an toàn **nếu** truy vấn qua view `dbo` và connection đã có session context.
 - **Depot** = phạm vi con **trong** tenant (chi nhánh) → đây là lớp cô lập "intra-tenant" có sẵn ở DB.
 
+### 3.1 Không phải mọi query đều qua view lọc tenant [code]
+- **EF6/EF Core (tenancy)**: interceptor đặt `TenantId` (EF Core package cũng có `EnsureTenancySessionContextInterceptor`) → đọc qua view `dbo`.
+- **Dapper / DbExecutionManager**: thư viện nội bộ (`BaseDbExecutionDapper.SetSessionContextAsync`, `DbExecutionManager.SetSessionContextForMultiTenant`) cũng `EXEC sp_set_session_context 'TenantId', @tenantId` → SQL viết tay dùng `dbo.*` (~379 chỗ) được lọc như EF. Không thấy cờ `@read_only`.
+- **Schema `multitenant.*`** (64 view): **chỉ lọc soft delete, KHÔNG lọc tenant** → dùng cho **handler tenantless** tra cứu xuyên tenant (vd. Role: tìm mobile user theo company), tự viết điều kiện tenant trong SQL (~80 chỗ).
+- **`tbl_multitenant.*` trực tiếp**: rất hiếm (1 chỗ trong app + processor/migration tool).
+- 52 view `dbo` không có điều kiện tenant đều xây trên view `dbo` khác (vd. `VWC_AMSJobs FROM dbo.Job`) → thừa hưởng bộ lọc.
+- Stored procedure trong `dbo` không đọc thẳng `tbl_multitenant`.
+
 ## 4. Các điểm vào và tenant context [code]
 - **Web**: sau đăng nhập, claim `JLClaimType.TenantId` lấy từ `loginToken.Company.TenantId` (không lấy từ request client gửi).
 - **Gọi giữa service**: thư viện client mang **operation info** (`ContextTenantId`, `OperationId`); bên nhận `ExtractTenancyOperationInfo` → middleware resolve shard. Có loại message `TenantlessMsg` / `TenantlessEvent` cho việc hệ thống.
