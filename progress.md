@@ -1,7 +1,7 @@
 # Tiến độ training
 
 > **Mục tiêu hiện tại (2026-10-16): SEADEV C# Developer (ShedPro Ops Hub)** — phỏng vấn bởi **Solution Architect + PO**. Đang theo **`plan-joblogic-3-buoi.md`**.
-> **Vị trí hiện tại:** Joblogic Buổi 1 — mục 1 ✅; mục 2 Multi-tenant ✅ hiểu cơ chế (SESSION_CONTEXT, view dbo, RLS block, Dapper) nhưng **bỏ qua bài toán** "khách thấy job công ty khác" (ôn lại ở mock). **Đang ở mục 3: Giao tiếp giữa service**, chờ user trả lời bài toán "message xử lý 2 lần".
+> **Vị trí hiện tại:** Joblogic Buổi 1 — mục 1 ✅, 2 ✅ (bỏ bài toán), 3 ✅ (bài toán email trùng: Mid, nhầm Outbox chống trùng), 4 ✅ (bỏ bài toán Enterprise + thử vài khách). **Đang ở mục 5: Azure → AWS**, sau đó chốt pitch kiến trúc 2 phút. Các bài toán bị bỏ → ôn ở mock.
 > Tài liệu: `context/joblogic.md` (feature đã làm, kiến trúc), `notes/J-joblogic-architecture.md`, `job-seadev.md` (JD, nguyên tắc trả lời: không nhắc nội bộ ShedPro). Phong cách: **ngắn, một chủ đề mỗi tin nhắn**.
 
 | Buổi | Chủ đề | Trạng thái | Ghi chú |
