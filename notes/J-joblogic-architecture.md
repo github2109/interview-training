@@ -15,7 +15,7 @@ Trigger (HTTP / ServiceBus / Timer / WarmUp) → `IDispatcher` → middleware (R
 ## Multi-tenancy
 - Tenant context (operation info: TenantId, user) đi theo **mọi** message; tenant → shard key → connection string.
 - Handler tách **Tenancy** (đa số) / **Tenantless** (onboarding, cleanup, quét mọi tenant). Timer tenantless quét tenant hợp lệ rồi **fan-out** message theo từng tenant theo batch. Webhook tenantless tự tìm tenant từ payload.
-- Query tenant phải lọc TenantId (TenancyInterceptor). Cleanup tenantless dùng `sp_set_session_context` để vượt policy (gợi ý có Row-Level Security).
+- [Đã kiểm] Interceptor chỉ đặt `SESSION_CONTEXT('TenantId')` + `DepotIds` khi mở connection; EF6 đọc qua **view `dbo`** lọc theo session context (tenant, soft delete, depot); ghi bị chặn bởi **RLS block predicate**; PK/FK đều kèm TenantId. Chi tiết: `notes/J-multitenant-deep.md`.
 - Onboarding: `CreateCompanyHandler` + initial template data.
 
 ## Subscription & feature gating (License)

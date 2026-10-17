@@ -1,7 +1,7 @@
 # Tiến độ training
 
 > **Mục tiêu hiện tại (2026-10-16): SEADEV C# Developer (ShedPro Ops Hub)** — phỏng vấn bởi **Solution Architect + PO**. Đang theo **`plan-joblogic-3-buoi.md`**.
-> **Vị trí hiện tại:** Joblogic Buổi 1 — mục 1 (Tổng thể) ✅ xong; **mục 2 (Multi-tenant) đã dạy, đang chờ user trả lời bài toán:** "A customer reports they can see another company's job. How do you investigate and prevent it?" → chấm, rồi sang mục 3 (Giao tiếp giữa service).
+> **Vị trí hiện tại:** Joblogic Buổi 1 — mục 1 (Tổng thể) ✅ xong; **mục 2 (Multi-tenant) đã dạy và đã kiểm chứng với code (`notes/J-multitenant-deep.md`), đang chờ user trả lời bài toán:** "A customer reports they can see another company's job. How do you investigate and prevent it?" → chấm, rồi sang mục 3 (Giao tiếp giữa service).
 > Tài liệu: `context/joblogic.md` (feature đã làm, kiến trúc), `notes/J-joblogic-architecture.md`, `job-seadev.md` (JD, nguyên tắc trả lời: không nhắc nội bộ ShedPro). Phong cách: **ngắn, một chủ đề mỗi tin nhắn**.
 
 | Buổi | Chủ đề | Trạng thái | Ghi chú |

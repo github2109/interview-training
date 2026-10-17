@@ -5,7 +5,7 @@ Nguồn: `/Users/hiepdinhquang/Desktop/ExtraJob/Joblogic/joblogic-web` (git, ~13
 ## Kiến trúc thật
 - Multi-tenant SaaS quản lý dịch vụ hiện trường (UK). Repo `joblogic-web` = **FrontApps** (ASP.NET Core .NET 8: Web MVC/Razor lớn nhất, Portal cho khách hàng, WebAPI…) + **"Jicroservices"** (Azure Functions isolated worker): Core, Audit (MongoDB), DocGen (PDF/DOCX), Notification, Schedule, Payment (Stripe), ContractLayer…
 - Giao tiếp: `RequestAsync` (HTTP, query) và `CommandAsync` (Azure Service Bus, command); contract dùng chung qua NuGet `__contract`; retry `DefaultMsgSenderWithRetryFactory`.
-- Handler trả `OneOf<TSuccess, Error>` (không throw cho lỗi nghiệp vụ). Handler tách `TenancyHandler` / `TenantlessHandler`; mọi query phải lọc `TenantId` (có TenancyInterceptor).
+- Handler trả `OneOf<TSuccess, Error>` (không throw cho lỗi nghiệp vụ). Handler tách `TenancyHandler` / `TenantlessHandler`; cô lập tenant bằng SESSION_CONTEXT + view `dbo` (đọc) + RLS block predicate (ghi), PK/FK kèm TenantId — xem `notes/J-multitenant-deep.md`.
 - Data: **Entity Framework 6** (`System.Data.Entity.DbContext`, `IDbSet`, Z.EntityFramework.Plus.EF6) chạy trên .NET 8, + Dapper, SQL Server, có read-only context. **Không phải EF Core.**
 - Test: **MSTest** + AutoFixture + AutoMocker (không phải xUnit/Moq).
 - Frontend Web: Razor + jQuery + **Vue component nhúng trong trang** (gulp/babel). Không thấy React trong phần user sửa.
