@@ -42,3 +42,11 @@ Trigger (HTTP / ServiceBus / Timer / WarmUp) → `IDispatcher` → middleware (R
 
 ## Map Azure → AWS
 Functions→Lambda; Service Bus queue/topic→SQS / SNS(+SQS) hoặc EventBridge; Service Bus sessions→SQS FIFO message group; App Service→ECS/Fargate/Elastic Beanstalk; Blob→S3; Azure SQL→RDS SQL Server/Aurora; Cosmos/Mongo→DocumentDB/DynamoDB; Redis→ElastiCache; App Configuration+FeatureManagement→AppConfig/Parameter Store; Key Vault→Secrets Manager/KMS; App Insights→CloudWatch + X-Ray; Azure Search→OpenSearch; SendGrid/Twilio→SES/SNS (hoặc giữ); Azure AD B2C→Cognito; YARP/Front Door→ALB/API Gateway/CloudFront; Azure DevOps→CodePipeline/GitHub Actions.
+
+## DocGen — cơ chế đã kiểm trong code (2026-10-18)
+1. Web/Portal gửi `GenerateProjectInvoiceDocumentMsg { Id, DocumentTemplateId?, DocType }` tới DocGen.
+2. Chọn template: id được chọn, hoặc template mặc định của tenant cho loại tài liệu (Blob: template tenant → fallback template hệ thống).
+3. **Cache theo checksum**: hỏi Core `Get...DocumentChecksumMsg` (checksum dữ liệu nguồn) + logo + culture → key gồm `tenantId + entityId + templateType + docType + templateId`; trùng checksum → trả file đã sinh (Temp blob 7 ngày, Redis), khỏi render lại.
+4. Lấy dữ liệu: Core `Get...DocumentDataMsg` trả **document model** đã tính sẵn (Core lo nghiệp vụ, DocGen chỉ render).
+5. Thay tag: **Xceed DocX** (`WordManipulator.ReplaceContentToStream`), tag dạng `@@TagName@@`; loại thay thế: Text, Image, Signature, Table (lặp dòng), NestedTable, Hyperlink, QR…; thêm watermark DRAFT nếu hoá đơn nháp.
+6. Xuất: **Aspose.Words** lưu thành **PDF** hoặc **DOCX**, đặt tên file theo tenant/loại/số chứng từ, lưu Blob tạm, trả link.
