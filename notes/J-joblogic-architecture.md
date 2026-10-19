@@ -50,3 +50,10 @@ Functions→Lambda; Service Bus queue/topic→SQS / SNS(+SQS) hoặc EventBridge
 4. Lấy dữ liệu: Core `Get...DocumentDataMsg` trả **document model** đã tính sẵn (Core lo nghiệp vụ, DocGen chỉ render).
 5. Thay tag: **Xceed DocX** (`WordManipulator.ReplaceContentToStream`), tag dạng `@@TagName@@`; loại thay thế: Text, Image, Signature, Table (lặp dòng), NestedTable, Hyperlink, QR…; thêm watermark DRAFT nếu hoá đơn nháp.
 6. Xuất: **Aspose.Words** lưu thành **PDF** hoặc **DOCX**, đặt tên file theo tenant/loại/số chứng từ, lưu Blob tạm, trả link.
+
+## Tải tài liệu: SAS + proxy (đã kiểm, 2026-10-19)
+- Download: `ProjectController.Download` yêu cầu đăng nhập + `[Permission(PROJECT_DOWNLOAD)]` + dữ liệu theo tenant → DocGen trả `Temp7DayBlob { Link, SasBlobUrl }` (SAS do thư viện temp storage tạo; thời hạn SAS chưa thấy, nằm trong package).
+- Web không trả URL Azure: `MaskDocumentRoute` đổi `https://<storage>.blob.core.windows.net/<path>?<sas>` → `/files/temp-blobs/<path>?<sas>` (đường dẫn tương đối trên domain Joblogic).
+- Trình duyệt gọi `/files/temp-blobs/...` → endpoint YARP `forwarder.ForwardRequest(context, TempGeneralBlobUrl)` chuyển tiếp nguyên query SAS tới Blob. Route proxy không có `RequireAuthorization` → quyền truy cập file dựa vào **chữ ký SAS** (link mang quyền), còn quyền "được tạo link" dựa vào login + permission.
+- Print: server tự tải blob (`GetFilePrintAsync(blob.Link)`) rồi stream `File(...)` trong request đã đăng nhập.
+- Lý do proxy: một domain (không lộ storage, không CORS, dễ firewall/whitelist), định tuyến theo vùng (Portal dùng `hostConfig.Region`).
