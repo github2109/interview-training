@@ -2,6 +2,7 @@
 
 > **Mục tiêu hiện tại (2026-10-16): SEADEV C# Developer (ShedPro Ops Hub)** — phỏng vấn bởi **Solution Architect + PO**. Đang theo **`plan-joblogic-3-buoi.md`**.
 > **Vị trí hiện tại:** Joblogic **Buổi 1 ✅** (pitch kiến trúc đạt Mid+; đã học thêm SESSION_CONTEXT, view inlining, RLS block predicate). **Buổi 2 đang ở feature 1: Project Cost Breakdown.** Bài toán bị bỏ (multi-tenant leak, Enterprise+pilot) → ôn ở mock.
+> **Bộ ôn tổng hợp + đánh giá lỗ hổng theo JD (2026-10-23): `notes/S-seadev-interview-kit.md`.** Thiếu chính: design pattern + refactoring + tiếp quản legacy, ASP.NET MVC, unit test, nghiệp vụ Ops Hub/câu hỏi PO, Git/Agile/AWS mức nói, mock.
 > Tài liệu: `context/joblogic.md` (feature đã làm, kiến trúc), `notes/J-joblogic-architecture.md`, `job-seadev.md` (JD, nguyên tắc trả lời: không nhắc nội bộ ShedPro). Phong cách: **ngắn, một chủ đề mỗi tin nhắn**.
 
 | Buổi | Chủ đề | Trạng thái | Ghi chú |

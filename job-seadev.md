@@ -2,6 +2,10 @@
 
 Nguồn: https://seadev.us/career/c-developer/ (đọc 2026-10-13)
 
+## JD bản dtalent (Hiệp dán 2026-10-23)
+- Khác bản cũ: **≥ 4 năm** C#/.NET (cũ ghi ≥ 3), nhấn "clean, testable, well-structured code, solid architectural patterns… stable and scalable", "learn quickly and adapt", "leading new feature development". Còn lại giống.
+- Bộ kiến thức tổng hợp cho vòng SA + PO: `notes/S-seadev-interview-kit.md`.
+
 ## JD tóm tắt
 - Team ShedPro, báo cáo trực tiếp Product Manager. Sản phẩm SaaS cho doanh nghiệp bán nhà kho/mái che (shed, carport) ở Bắc Mỹ.
 - **Ops Hub**: báo giá (quoting) → đơn hàng (sales order) → hợp đồng thuê-mua (Rent-to-Own, RTO) → theo dõi sản xuất → lên lịch giao hàng.
