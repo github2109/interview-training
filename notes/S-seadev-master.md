@@ -8,6 +8,7 @@ Nguyên tắc: giải thích tiếng Việt, **câu trả lời mẫu tiếng An
 ## 0. Cách dùng file này
 
 ### 0.1 Ai phỏng vấn, họ quan tâm gì
+- **Vòng 1 = culture & core values** → học ở file riêng `notes/S-seadev-culture.md`. File này dành cho **vòng tech** (SA + PO). Tuy vậy, interviewer tech cũng sẽ nghe xem bạn có sống theo 5 value không: **1% Improvement, Driven by Customer Success, Enjoy Problem Solving, Be Accountable, Love our People & Communities** — câu nào nối được thì nối (đánh dấu 🟢 ở dưới).
 - **Solution Architect (có thể là Khiet Vo)**: gốc frontend / full stack JS–TS (React, TypeScript, UX/UI, Node), skill tự khai ở vai trò SA: **Software Architecture, CI/CD**; trước đó **AWS** (AgilityIO), **REST, Clean Coding** (Urbanise, SaaS quản lý chung cư/facilities: tiền định kỳ, workflow bảo trì, tài liệu, tích hợp ngân hàng). Không khai C#/.NET → ít soi nội tại CLR, soi **thiết kế, API, chất lượng code, pipeline, cloud**.
 - **Product Owner / PM**: nghiệp vụ, làm rõ yêu cầu, edge case, ưu tiên, giao tiếp, thái độ "1% improvements", accountable.
 - Bối cảnh JD: tiếp quản code từ **đối tác Mỹ**, **dẫn dắt** tính năng mới, giữ hiệu năng, chất lượng, bảo trì lâu dài. Yêu cầu: **≥ 4 năm** C#/.NET, ASP.NET MVC và/hoặc Web API, AWS/cloud, design pattern + refactoring, clean code, Git, Agile, REST; cộng điểm: React/Angular/Vue, unit test, tiếng Anh.
@@ -104,7 +105,7 @@ Kinh nghiệm: tính từ 07/2022 → ~4 năm 3 tháng; full-time từ 12/2022 �
 | Câu hỏi | Ý trả lời |
 |---|---|
 | Why are you leaving / why did you leave? | > The company restructured and my position was affected in September. I'm now looking for a product team where I can own a business-critical system for the long term. (Không nói thêm chi tiết, không chê công ty cũ.) |
-| Why SEADEV / why this role? | Sản phẩm nhiều nghiệp vụ (quote, contract, production, delivery) giống Joblogic; làm sát PM; tiếp quản và phát triển dài hạn; .NET là thế mạnh; làm với đối tác Mỹ đã quen (PLAYSTUDIOS). |
+| Why SEADEV / why this role? | Sản phẩm nhiều nghiệp vụ (quote, contract, production, delivery) giống Joblogic; làm sát PM; tiếp quản và phát triển dài hạn; .NET là thế mạnh; làm với đối tác Mỹ đã quen (PLAYSTUDIOS). 🟢 Thêm purpose "Create jobs, improve lives, make awesome stuff" và value 1% Improvement / Customer Success (bản đầy đủ: `S-seadev-culture.md` 4.2). |
 | What do you know about ShedPro / Ops Hub? | Chỉ nói phạm vi JD: SaaS cho doanh nghiệp bán shed/carport ở Bắc Mỹ; Ops Hub quản lý quoting, sales orders, rent-to-own contracts, production tracking, delivery scheduling; đang tiếp quản từ đối tác Mỹ. > From the job description, the Ops Hub is the operational back office for shed and carport businesses in North America — quoting, sales orders, rent-to-own contracts, production tracking and delivery scheduling — and the codebase is being taken over from a US partner. |
 | Strengths? | Backend .NET, hiểu nghiệp vụ và edge case, tự đào sâu (TDD Quest Engine, tiếp quản Socure), on-call bình tĩnh. Kèm một ví dụ. |
 | Weakness? | Chọn điểm yếu thật nhưng đang cải thiện, không phạm vào yêu cầu cốt lõi. Ví dụ: tiếng Anh nói (đang học PTE), hoặc chưa tự dựng CI/CD pipeline từ đầu (đang học). > My spoken English is less fluent than my reading and listening, so I'm preparing for PTE Academic and I practise explaining technical designs in English. In my last role I wrote technical designs in English and joined design meetings with the US team. |
@@ -644,6 +645,7 @@ Payment provider, API thuế, công ty RTO, configurator 3D/website bán hàng, 
 
 ## 9. Câu hỏi PO: làm rõ yêu cầu, edge case, ưu tiên — Khả năng: Rất cao (85%)
 
+🟢 Nối value: **Driven by Customer Success** (xem mục tiêu của khách như của mình, khách nội bộ gồm cả PM), **1% Improvement** (từng phân đoạn thay vì phiên bản hoàn hảo, linh hoạt khi đổi yêu cầu), **Enjoy Problem Solving** (80/20, biết hỏi giúp), **Be Accountable** (báo sớm, chính trực).
 Khung: **làm rõ (hỏi lại) → đề xuất phương án nhỏ giao trước → edge case → đo kết quả**. PO đánh giá: hiểu "vì sao", hỏi đúng câu, giao tiếp rõ, không tự ý làm thêm, chịu trách nhiệm.
 
 ### 9.1 Bảng tình huống
@@ -707,6 +709,7 @@ Khung: **làm rõ (hỏi lại) → đề xuất phương án nhỏ giao trướ
 
 ## 10. Behavioral STAR (tiếng Anh) — Khả năng: Cao (75%)
 
+🟢 Bộ câu chuyện theo từng core value (và bảng câu chuyện × value) nằm ở `notes/S-seadev-culture.md` mục 3 và 5 — dùng chung cho cả vòng tech.
 STAR: **Situation** (1–2 câu) → **Task** (1 câu) → **Action** (nhiều nhất, dùng "I") → **Result** (con số, hậu quả) → bài học. 60–90 giây.
 
 ### 10.1 Bộ câu chuyện
@@ -1652,6 +1655,10 @@ Cho PO:
 4. How do you measure whether a feature was successful?
 5. What's on the roadmap for the next six months?
 
+Gắn core value (dùng được cho cả SA/PO):
+- How do 1% improvements usually happen in this team — can a developer just propose a small refactor or process change?
+- When something goes wrong in production, how does the team handle it — what does "coach, not police" look like in practice?
+
 Chung (cuối buổi):
 - What are the next steps in the process?
 - Is there anything in my background you'd like me to clarify?
@@ -1683,7 +1690,8 @@ Tránh: lương/phúc lợi ở vòng tech (để HR), câu hỏi lộ ra là đ
 - Không nhắc chi tiết nội bộ ShedPro; không chê code Joblogic; nói đúng công nghệ thật (EF6, MSTest, Vue, Jenkins/Helm config).
 - Không nói quá về CI/CD, AWS, microservice architecture.
 - Interviewer gốc frontend → tôn trọng UX, không coi nhẹ FE.
-- Không biết thì nói thật + cách tiếp cận.
+- Không biết thì nói thật + cách tiếp cận (= value **Be Accountable / chính trực**).
+- Khi kể sự cố/bất đồng: **coach, not police**, không đổ lỗi, không nói xấu người khác (value **Love our People**).
 
 ### 30.3 Trong phòng
 - Nghe hết câu hỏi, hỏi lại nếu chưa rõ ("Just to make sure…").
@@ -1746,6 +1754,7 @@ idempotent (gọi nhiều lần cùng kết quả) · race condition (tranh ch�
 | Performance, quality, long-term maintainability | 25, 5, 15 |
 | Learn quickly and adapt | 1.3, 10 |
 | Hiểu nghiệp vụ, làm sát PM, "1% improvements", accountable | 8, 9, 10 |
+| 5 core values (1% Improvement, Customer Success, Problem Solving, Accountable, Love People & Communities) | `S-seadev-culture.md`; nối ở 1.3, 9, 10, 29 |
 | Quoting, sales orders, RTO contracts, production tracking, delivery scheduling | 8, 26 |
 | Profile SA: Software Architecture, CI/CD, AWS, REST, Clean Coding, React/TS, UX | 3, 20, 21, 4, 5, 19 |
 | Nền SA từ Urbanise: tiền định kỳ, workflow, tài liệu, tích hợp ngân hàng, owner portal | 8.3, 6 (State), 8.5, 22, 8.10 câu 20 |

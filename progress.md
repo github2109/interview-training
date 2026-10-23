@@ -2,7 +2,7 @@
 
 > **Mục tiêu hiện tại (2026-10-16): SEADEV C# Developer (ShedPro Ops Hub)** — phỏng vấn bởi **Solution Architect + PO**. Đang theo **`plan-joblogic-3-buoi.md`**.
 > **Vị trí hiện tại:** Joblogic **Buổi 1 ✅** (pitch kiến trúc đạt Mid+; đã học thêm SESSION_CONTEXT, view inlining, RLS block predicate). **Buổi 2 đang ở feature 1: Project Cost Breakdown.** Bài toán bị bỏ (multi-tenant leak, Enterprise+pilot) → ôn ở mock.
-> **FILE HỌC CHÍNH (2026-10-23): `notes/S-seadev-master.md`** — 31 section, mỗi section có kiến thức, câu mẫu tiếng Anh, câu hỏi luyện và % khả năng bị hỏi; gộp kit + plan + hồ sơ SA (`notes/S-seadev-interviewer-profile.md`). Bộ ôn cũ: `notes/S-seadev-interview-kit.md`. Thiếu chính: design pattern + refactoring + tiếp quản legacy, ASP.NET MVC, unit test, nghiệp vụ Ops Hub/câu hỏi PO, Git/Agile/AWS mức nói, mock.
+> **FILE HỌC CHÍNH (2026-10-23): `notes/S-seadev-master.md`** — 31 section, mỗi section có kiến thức, câu mẫu tiếng Anh, câu hỏi luyện và % khả năng bị hỏi; gộp kit + plan + hồ sơ SA (`notes/S-seadev-interviewer-profile.md`). Bộ ôn cũ: `notes/S-seadev-interview-kit.md`. **Vòng 1 là culture/core values → `notes/S-seadev-culture.md`** (nguyên văn 5 value, câu chuyện theo value, câu hỏi). Thiếu chính: design pattern + refactoring + tiếp quản legacy, ASP.NET MVC, unit test, nghiệp vụ Ops Hub/câu hỏi PO, Git/Agile/AWS mức nói, mock.
 > Tài liệu: `context/joblogic.md` (feature đã làm, kiến trúc), `notes/J-joblogic-architecture.md`, `job-seadev.md` (JD, nguyên tắc trả lời: không nhắc nội bộ ShedPro). Phong cách: **ngắn, một chủ đề mỗi tin nhắn**.
 
 | Buổi | Chủ đề | Trạng thái | Ghi chú |
