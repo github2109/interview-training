@@ -251,8 +251,25 @@ Câu hỏi dự kiến:
 | A time you worked with someone very different from you | Designer nước ngoài (Rive), team Mỹ/UK |
 | What does integrity mean to you? | Nói thật kể cả khi bất lợi — ví dụ nói đúng phạm vi kinh nghiệm của mình |
 
-### 4.1 Tell me about yourself — bản cho vòng culture
-> I'm a full-stack developer from Da Nang with about four years of experience, mostly on .NET backends. I've worked on a US sweepstakes gaming platform with over two million players, where I led features end to end and joined the on-call rotation, and on a UK field-service SaaS with quoting, contracts and cost tracking. What I care about most in my work is understanding why a feature matters to the customer, and making steady improvements rather than waiting for a big rewrite. Outside work I'm improving my English through PTE preparation. I'm looking for a team where I can grow for the long term, and that's a big part of why SEADEV appeals to me.
+### 4.1 Tell me about yourself — bản cho vòng culture (cập nhật 2026-10-26, ~1–1.5 phút, ~210 từ)
+> I'm Hiep, a full-stack developer from Da Nang with about four years of experience, mostly on the .NET backend.
+>
+> Most of my career has been in the game domain, at Geargames. For almost two years I worked on PlaySweeps, a US sweepstakes gaming platform with over two million registered players, and I worked directly with the client's team in the US — on Slack every day and in technical design meetings. I was a feature lead there. For example, I wrote the technical design for a new quest engine and took it all the way to production, and I took over an identity-verification integration and reworked it until it ran reliably. I was also on the on-call rotation, so I learned to own a problem until it's really fixed.
+>
+> Alongside that, I spent six months part-time on a UK field-service SaaS — a multi-tenant product for service businesses. I delivered features like estimated-versus-actual cost breakdowns, customer contracts with an audit trail and quote and invoice templates, and job spend limits. That's quite close to what the Ops Hub does: quoting, contracts and day-to-day operations.
+>
+> What I care about most is understanding why a feature matters to the customer, and improving things a little at a time rather than waiting for a perfect rewrite. That's why SEADEV's values, and a long-term product like ShedPro, really appeal to me.
+
+Bản 30 giây:
+> I'm a .NET full-stack developer with about four years of experience, mostly in the game domain. Most recently I was a feature lead on a US sweepstakes gaming platform with over two million players, working directly with the US client. I also worked part-time on a UK multi-tenant SaaS with quoting, contracts and cost tracking, which is close to what the Ops Hub does.
+
+Vì sao chọn từng phần:
+- **Mở đầu 1 câu** (tên, 4 năm, .NET): vòng culture không cần stack dài.
+- **Game domain + làm trực tiếp với team Mỹ**: SEADEV làm cho khách Mỹ và ShedPro tiếp quản từ đối tác Mỹ → giao tiếp với Mỹ là điểm cộng lớn. Chỉ nói "game domain", không nói "casino/real-money".
+- **Quest Engine (thiết kế → production)** = Accountable + Problem Solving. **Socure "took over… reworked"** = đúng sự thật (không phải làm từ đầu), thể hiện trách nhiệm tiếp quản, đúng việc ShedPro cần. **On-call** = Accountable.
+- **Freelance SaaS**: chọn đúng 3 feature khớp Ops Hub theo JD: cost breakdown ↔ quoting/giá, contract + audit + template ↔ RTO/sales contract, spend limit ↔ vận hành. Chỉ dùng phạm vi JD công khai, không nhắc release notes ShedPro.
+- **Câu kết** cài nhẹ Customer Success ("why a feature matters to the customer") và 1% Improvement ("a little at a time… not a perfect rewrite"), rồi mở sang "Why SEADEV".
+- Không nhắc lý do rời công ty (để dành nếu được hỏi), không nhắc Love People ở đây (dành cho câu chuyện Astraler/Rive).
 
 ### 4.2 Why SEADEV — bản đầy đủ
 > Three reasons. First, the product: the Ops Hub is business-heavy — quoting, contracts, production, delivery — and that's the kind of work I enjoyed most at Joblogic, where I worked on cost breakdowns and customer contracts. Second, the way you work: values like 1% improvement and being driven by customer success match how I like to work — close to the product manager, understanding the why, and improving things step by step. Third, the purpose: creating jobs and improving lives in Da Nang is something I can relate to, and I'd like to stay and grow with a company for the long term rather than move between short projects.
