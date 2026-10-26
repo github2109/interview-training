@@ -251,14 +251,14 @@ Câu hỏi dự kiến:
 | A time you worked with someone very different from you | Designer nước ngoài (Rive), team Mỹ/UK |
 | What does integrity mean to you? | Nói thật kể cả khi bất lợi — ví dụ nói đúng phạm vi kinh nghiệm của mình |
 
-### 4.1 Tell me about yourself — bản cho vòng culture (cập nhật 2026-10-26, ~1–1.5 phút, ~210 từ)
-> I'm Hiep, a full-stack developer from Da Nang with about four years of experience, mostly on the .NET backend.
+### 4.1 Tell me about yourself — bản cho vòng culture (cập nhật 2026-10-26, ~50 giây, ~120 từ)
+> I'm Hiep, a .NET full-stack developer from Da Nang with about four years of experience, mostly in the game domain.
 >
-> Most of my career has been in the game domain, at Geargames. For almost two years I worked on PlaySweeps, a US sweepstakes gaming platform with over two million registered players, and I worked directly with the client's team in the US — on Slack every day and in technical design meetings. I was a feature lead there. For example, I wrote the technical design for a new quest engine and took it all the way to production, and I took over an identity-verification integration and reworked it until it ran reliably. I was also on the on-call rotation, so I learned to own a problem until it's really fixed.
+> Most recently I was a feature lead on PlaySweeps, a US sweepstakes gaming platform with over two million players, working directly with the client's US team. I designed a quest engine and took it to production, took over an identity-verification integration, and was on the on-call rotation.
 >
-> Alongside that, I spent six months part-time on a UK field-service SaaS — a multi-tenant product for service businesses. I delivered features like estimated-versus-actual cost breakdowns, customer contracts with an audit trail and quote and invoice templates, and job spend limits. That's quite close to what the Ops Hub does: quoting, contracts and day-to-day operations.
+> I also worked part-time on a UK multi-tenant SaaS, delivering cost breakdowns, customer contracts with audit trails, and job spend limits, which is close to what the Ops Hub does.
 >
-> What I care about most is understanding why a feature matters to the customer, and improving things a little at a time rather than waiting for a perfect rewrite. That's why SEADEV's values, and a long-term product like ShedPro, really appeal to me.
+> I care about understanding why a feature matters to the customer and improving things a little at a time, which is why SEADEV's values really appeal to me.
 
 Bản 30 giây:
 > I'm a .NET full-stack developer with about four years of experience, mostly in the game domain. Most recently I was a feature lead on a US sweepstakes gaming platform with over two million players, working directly with the US client. I also worked part-time on a UK multi-tenant SaaS with quoting, contracts and cost tracking, which is close to what the Ops Hub does.
