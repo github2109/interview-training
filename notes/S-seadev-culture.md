@@ -251,14 +251,16 @@ Câu hỏi dự kiến:
 | A time you worked with someone very different from you | Designer nước ngoài (Rive), team Mỹ/UK |
 | What does integrity mean to you? | Nói thật kể cả khi bất lợi — ví dụ nói đúng phạm vi kinh nghiệm của mình |
 
-### 4.1 Tell me about yourself — bản cho vòng culture (cập nhật 2026-10-26, ~50 giây, ~120 từ)
-> I'm Hiep, a .NET full-stack developer from Da Nang with about four years of experience, mostly in the game domain.
+### 4.1 Tell me about yourself — bản cho vòng culture (bản của Hiệp đã chỉnh, 2026-10-26, ~1 phút)
+> I'm a full-stack developer from Da Nang with about four years of experience, mostly in the game domain at Geargames, where most of our clients were from the US market.
 >
-> Most recently I was a feature lead on PlaySweeps, a US sweepstakes gaming platform with over two million players, working directly with the client's US team. I designed a quest engine and took it to production, took over an identity-verification integration, and was on the on-call rotation.
+> Over those four years I worked on many game and tool projects, in teams from about five people up to around thirty, and I was usually one of the top contributors on the projects I joined.
 >
-> I also worked part-time on a UK multi-tenant SaaS, delivering cost breakdowns, customer contracts with audit trails, and job spend limits, which is close to what the Ops Hub does.
+> Most recently I worked on a US sweepstakes gaming platform with over two million registered players. I led several key features, such as identity verification for US players with ID documents and SSN, game provider integrations, and a quest engine. I owned the whole feature pipeline: gathering requirements, analysing the specs and asking the right questions to understand the business, writing the technical design, implementing, reviewing teammates' code, testing, and delivering to production.
 >
-> I care about understanding why a feature matters to the customer and improving things a little at a time, which is why SEADEV's values really appeal to me.
+> Besides that, I also worked part-time on a UK multi-tenant field-service SaaS, which is quite similar to ShedPro's business. I really care about understanding why a feature matters to the customer, and that's a big part of why SEADEV appeals to me.
+
+[to confirm] quy mô team 5–30 người; "most clients from the US" (Immutable là công ty Úc). Bằng chứng "top contributor": ~1.330 commit trên backend PlaySweeps, nhiều nhất team.
 
 Bản 30 giây:
 > I'm a .NET full-stack developer with about four years of experience, mostly in the game domain. Most recently I was a feature lead on a US sweepstakes gaming platform with over two million players, working directly with the US client. I also worked part-time on a UK multi-tenant SaaS with quoting, contracts and cost tracking, which is close to what the Ops Hub does.
