@@ -603,11 +603,245 @@ Câu mẫu:
 > Once a contract is signed, it's a legal record, so it must never be regenerated from current data. I'd store the generated PDF in S3 together with the template version and a snapshot of the data used, plus a hash. If the company updates its template, only new contracts use it. If a customer disputes a contract a year later, we show exactly the file they signed, and the audit trail shows who sent it and when it was signed.
 
 ### 8.6 Production & delivery
+
+Bối cảnh: shed (nhà kho gỗ/kim loại) được **đóng theo đơn** ở xưởng rồi chở bằng xe chuyên dụng (xe kéo/xe "mule") tới sân nhà khách. Vòng đời sau khi order được xác nhận: **vào hàng đợi sản xuất → đóng → kiểm tra → lên lịch giao → giao + xác nhận → (thu nốt tiền)**. Mỗi bước có một nhóm người dùng khác: quản lý xưởng, thợ, điều phối giao hàng, tài xế, khách. Đây là phần "vận hành", PO rất hay hỏi tình huống ở đây. Chi tiết ShedPro thật mình chưa biết, nên khi trả lời hãy nói "I'd assume… and confirm with the PO".
+
+Tóm tắt 5 ý:
 - Production queue: thứ tự đóng có thể kéo-thả thủ công → lưu `Position` (số thực/khoảng trống hoặc rank) + optimistic concurrency khi hai người cùng sắp xếp.
 - Trạng thái sản xuất cập nhật từ xưởng (có thể qua tablet) → audit.
 - Delivery: ràng buộc (xe chở tối đa N đơn/ngày, vùng giao, cửa sổ thời gian, điều kiện mặt bằng). Chống đặt quá → atomic UPDATE bộ đếm hoặc `UPDLOCK` trên dòng (xe, ngày) (`notes/03`).
 - Driver app: có thể offline → dữ liệu trên máy là bản chụp; văn phòng đổi lịch → push + đồng bộ lại (giống RedeployRequired ở Joblogic); xác nhận giao + ảnh + chữ ký + thu tiền → idempotent khi app retry.
 - Thông báo khách: SMS/email khi lên lịch, trước ngày giao, khi giao xong; tôn trọng opt-out; gửi qua queue, idempotent.
+
+#### 8.6.1 Production queue: lưu thứ tự kéo-thả
+
+**Vấn đề.** Quản lý xưởng kéo đơn A lên trên đơn B (gấp, khách VIP, thiếu vật tư thì đẩy xuống). Cần lưu thứ tự sao cho: (1) di chuyển 1 đơn không phải ghi lại cả 500 dòng, (2) hai người cùng sắp xếp không làm hỏng thứ tự.
+
+**Ba cách lưu thứ tự** (đi từ đơn giản lên):
+
+| Cách | Di chuyển 1 đơn | Nhược điểm |
+|---|---|---|
+| Số nguyên liên tiếp 1,2,3… | UPDATE mọi dòng giữa vị trí cũ và mới (O(n)) | Nhiều dòng bị khoá, dễ deadlock khi 2 người cùng kéo |
+| Số có khoảng trống (1000, 2000, 3000) hoặc `decimal`: chèn vào giữa = trung bình hai bên | Ghi **1 dòng** | Sau nhiều lần chèn vào cùng một chỗ thì hết khoảng (1000 → 1500 → 1250…) → cần **rebalance** (đánh lại 1000, 2000…) |
+| Rank dạng chuỗi (LexoRank kiểu Jira, "fractional indexing") | Ghi 1 dòng, sinh chuỗi nằm giữa hai chuỗi | Phức tạp hơn, cần thư viện; chỉ đáng khi danh sách rất dài và kéo liên tục |
+
+Với xưởng shed (vài chục tới vài trăm đơn đang chờ mỗi xưởng), **số có khoảng trống + rebalance** là đủ. Nói được "I'd pick the simplest one that fits the size" là điểm Senior.
+
+```csharp
+public class ProductionJob
+{
+    public Guid Id { get; set; }
+    public Guid PlantId { get; set; }          // mỗi xưởng một hàng đợi
+    public Guid OrderId { get; set; }
+    public decimal Position { get; set; }      // DECIMAL(20,10)
+    public ProductionStatus Status { get; set; }
+    public byte[] RowVersion { get; set; } = default!; // SQL Server rowversion
+}
+
+// Client gửi: "đặt job X nằm giữa beforeId và afterId" (không gửi số Position)
+public async Task MoveAsync(Guid jobId, Guid? beforeId, Guid? afterId, byte[] rowVersion)
+{
+    var job = await _db.ProductionJobs.SingleAsync(j => j.Id == jobId);
+    _db.Entry(job).Property(j => j.RowVersion).OriginalValue = rowVersion;
+
+    decimal? prev = beforeId is null ? null :
+        await _db.ProductionJobs.Where(j => j.Id == beforeId).Select(j => (decimal?)j.Position).SingleAsync();
+    decimal? next = afterId is null ? null :
+        await _db.ProductionJobs.Where(j => j.Id == afterId).Select(j => (decimal?)j.Position).SingleAsync();
+
+    job.Position = (prev, next) switch
+    {
+        (null, null) => 1000m,
+        (null, var n) => n!.Value - 1000m,      // lên đầu
+        (var p, null) => p!.Value + 1000m,      // xuống cuối
+        var (p, n) => (p!.Value + n!.Value) / 2 // chèn giữa
+    };
+
+    try { await _db.SaveChangesAsync(); }
+    catch (DbUpdateConcurrencyException)
+    {
+        throw new ConflictException("Queue changed, please refresh"); // → HTTP 409
+    }
+    // nếu khoảng cách (next - prev) < 0.0001 → đẩy job nền rebalance cho PlantId này
+}
+```
+
+Điểm cần nói:
+- **Client gửi ý định ("đặt giữa A và B"), không gửi con số** → server tự tính, tránh client cũ ghi đè.
+- **Optimistic concurrency** (`rowversion` / EF `IsRowVersion()`): người thứ hai lưu bản cũ → `DbUpdateConcurrencyException` → trả **409 Conflict**, UI tải lại hàng đợi. Chọn optimistic vì xung đột hiếm (vài người sắp xếp), không cần giữ khoá trong lúc người dùng kéo.
+- Mức chặt hơn: concurrency theo **cả hàng đợi** (một cột `QueueVersion` trên bảng `Plant`, tăng mỗi lần sắp xếp), vì A kéo job 1 và B kéo job 2 cùng lúc có thể đều "thành công" nhưng kết quả không phải điều ai muốn. Hỏi PO mức nào đủ.
+- Realtime: sau khi lưu, đẩy sự kiện qua **SignalR** tới các màn hình khác đang mở hàng đợi xưởng đó → giảm 409.
+- Index `(PlantId, Status, Position)` để lấy hàng đợi theo thứ tự.
+
+Câu mẫu:
+> For a drag-and-drop production queue I'd store a sortable position with gaps, so moving one job means updating one row: the new position is the midpoint between its new neighbours, and a background job rebalances when the gaps get too small. The client sends "put job X between A and B", not a number. Each save checks a row version, so if two managers reorder at the same time, the second one gets a 409 and a refreshed queue instead of silently overwriting the first. I'd push the change over SignalR so other screens stay in sync. If the queue were thousands of items reordered constantly, I'd look at a string rank like Jira's LexoRank, but I'd start simple.
+
+#### 8.6.2 Trạng thái sản xuất từ xưởng + audit
+
+**Vấn đề.** Thợ/quản lý xưởng cập nhật trạng thái bằng tablet (thường dùng chung, đeo găng tay, wifi xưởng chập chờn): `Queued → InProgress → Built → QualityChecked → ReadyForDelivery` (có thể có `OnHold`, `Cancelled`). Văn phòng và khách cần biết đơn đang ở đâu; khi có tranh chấp ("ai đánh dấu xong khi chưa sơn?") cần truy vết.
+
+**Thiết kế:**
+- **State machine rõ ràng**, chuyển trạng thái chỉ qua method của entity, không cho set thẳng `Status`. Chuyển sai (Queued → Delivered) → lỗi 409/422.
+- Mỗi lần chuyển ghi **audit**: ai, lúc nào (UTC), từ trạng thái nào sang trạng thái nào, ghi chú/ảnh, thiết bị nào. Với tablet dùng chung → đăng nhập nhanh bằng **PIN theo người** để audit có nghĩa (hỏi PO).
+- Chuyển trạng thái phát **domain event** (`JobBuilt`) → bước tiếp (cho phép lên lịch giao, báo khách) chạy qua **outbox** để không mất sự kiện khi DB commit mà gửi message lỗi.
+- Bấm 2 lần / wifi chập chờn retry → chuyển trạng thái phải **idempotent**: đã `Built` mà nhận lại "mark Built" → trả OK, không ghi audit lần 2.
+
+```csharp
+public void MarkBuilt(Guid userId, DateTimeOffset now, string? note)
+{
+    if (Status == ProductionStatus.Built) return;              // retry → không làm gì
+    if (Status != ProductionStatus.InProgress)
+        throw new InvalidTransitionException(Status, ProductionStatus.Built);
+
+    var from = Status;
+    Status = ProductionStatus.Built;
+    BuiltAt = now;
+    _history.Add(new ProductionStatusChange(Id, from, Status, userId, now, note));
+    AddDomainEvent(new JobBuilt(Id, OrderId));                 // → outbox
+}
+```
+
+Audit lưu ở đâu: bảng `ProductionStatusChange` (append-only) là đủ cho lịch sử trạng thái; audit chung mọi field có thể dùng EF `SaveChangesInterceptor` (Joblogic lưu audit ở MongoDB). Không cần event sourcing cả hệ thống, nói được lý do là điểm cộng.
+
+Câu mẫu:
+> I'd model production status as an explicit state machine, so the only way to change it is through methods like `MarkBuilt`, which reject invalid transitions. Every transition writes an append-only history row with who, when in UTC, from and to, and an optional note or photo. Shop-floor tablets are often shared, so I'd ask the PO whether staff sign in with a quick PIN; otherwise the audit says "tablet 3" and that's not very useful in a dispute. Transitions are idempotent, because flaky Wi-Fi means the same tap can arrive twice, and the "job built" event goes through an outbox so scheduling and customer notifications are never lost.
+
+#### 8.6.3 Lên lịch giao: ràng buộc + chống đặt quá (overbooking)
+
+**Ràng buộc thực tế** (hỏi PO cái nào cần ngay, cái nào để sau):
+- **Năng lực**: xe/tài xế chở tối đa N chuyến/ngày (shed to, mỗi chuyến 1–2 cái), có thể theo **kích thước** (shed 12x24 cần xe/thiết bị riêng).
+- **Vùng giao**: theo ZIP/khoảng cách từ xưởng; ngoài vùng tính thêm phí theo dặm.
+- **Cửa sổ thời gian**: sáng/chiều; khách phải có mặt hay không.
+- **Điều kiện mặt bằng** (site readiness): nền đã san phẳng, lối vào đủ rộng, không vướng dây điện/cây → checklist trước giao; không đạt → giao lại, có phí.
+- **Thứ tự phụ thuộc**: chỉ lên lịch khi `ReadyForDelivery` (hoặc dự kiến xong trước ngày giao) và **đã trả đủ tiền / RTO đã duyệt** (hỏi PO).
+- Ngày giao là **ngày lịch + timezone xưởng** (xem 8.4).
+
+**Chống đặt quá: bản chất là race condition "check-then-act".** Hai điều phối viên cùng thấy xe A ngày 05/11 còn 1 chỗ (2/3), cùng bấm lưu → 4/3. Đọc `COUNT(*)` rồi mới INSERT là sai, kể cả trong transaction ở mức Read Committed (cả hai đều đọc được 2).
+
+Cách 1: **atomic UPDATE bộ đếm** (đơn giản, nhanh nhất). Có bảng `TruckDay(TruckId, Date, Capacity, Booked)`:
+
+```csharp
+await using var tx = await _db.Database.BeginTransactionAsync();
+
+var rows = await _db.Database.ExecuteSqlInterpolatedAsync($@"
+    UPDATE TruckDay SET Booked = Booked + 1
+    WHERE TruckId = {truckId} AND Date = {date} AND Booked < Capacity");
+
+if (rows == 0)
+    throw new ConflictException("Truck is full on that day");   // → 409, UI gợi ý ngày khác
+
+_db.Deliveries.Add(new Delivery(orderId, truckId, date, window));
+await _db.SaveChangesAsync();
+await tx.CommitAsync();
+```
+
+Câu `UPDATE ... WHERE Booked < Capacity` kiểm tra và tăng trong **một câu lệnh**; SQL Server giữ khoá ghi trên dòng đó tới hết transaction → người thứ hai phải chờ, sau đó điều kiện sai → 0 dòng. Huỷ/dời lịch → `Booked - 1` trong cùng transaction. Dòng `TruckDay` chưa có → tạo trước (job sinh lịch 60 ngày tới) hoặc `MERGE`/insert bắt lỗi unique.
+
+Cách 2: **khoá dòng cha bằng `UPDLOCK`** khi ràng buộc phức tạp hơn một con số (tổng kích thước, cửa sổ thời gian không chồng nhau):
+
+```sql
+BEGIN TRAN;
+SELECT * FROM TruckDay WITH (UPDLOCK, HOLDLOCK)
+WHERE TruckId = @truckId AND Date = @date;   -- người thứ 2 chờ ở đây
+-- đọc các Delivery của (xe, ngày), kiểm tra luật trong C#, rồi INSERT
+COMMIT;
+```
+
+`UPDLOCK` để hai người không cùng đọc rồi cùng ghi; `HOLDLOCK` giữ tới cuối transaction (và khoá cả phạm vi nếu dòng chưa tồn tại). Transaction phải **ngắn** (không gọi API ngoài bên trong).
+
+Cách 3: **rowversion trên `TruckDay`** (optimistic): đọc, kiểm tra luật, tăng `Booked`, lưu; xung đột → retry hoặc 409. Hợp khi ít tranh chấp.
+
+Không dùng: `lock` trong C# (nhiều instance thì vô dụng), nâng cả transaction lên `Serializable` (deadlock nhiều), distributed lock Redis (DB đã có sẵn khoá, thêm Redis chỉ thêm điểm hỏng; Hiệp dùng RedLock ở Quest Engine vì ở đó không có một dòng DB chung để khoá).
+
+Cách xác nhận bug có thật: test tích hợp bắn 10 request song song vào xe còn 1 chỗ (`Task.WhenAll`) với DB thật (Testcontainers) → đúng 1 thành công, 9 nhận 409. Trên production: query đếm `Delivery` theo (xe, ngày) > `Capacity`.
+
+Câu mẫu:
+> Overbooking is a classic check-then-act race: two dispatchers both see one slot left and both save. Counting in the application doesn't fix it, even inside a transaction. I'd keep a capacity row per truck per day and book with a single conditional update — `SET Booked = Booked + 1 WHERE Booked < Capacity` — in the same transaction as inserting the delivery. If zero rows were updated, the truck is full and we return a 409 with other dates. If the rules get richer, like total shed size or time windows, I'd lock that truck-day row with `UPDLOCK, HOLDLOCK`, check the rules and insert, keeping the transaction short. I'd prove it with an integration test that fires ten parallel bookings at the last slot and expects exactly one success.
+
+#### 8.6.4 Driver app offline + đồng bộ lại
+
+**Vấn đề.** Tài xế đi vùng nông thôn Mỹ, mất sóng. App phải chạy offline: xem lộ trình hôm nay, chụp ảnh, lấy chữ ký, ghi nhận thanh toán, rồi đồng bộ khi có mạng. Dữ liệu trên máy là **bản chụp** tại lúc tải; văn phòng có thể đổi lịch, đổi địa chỉ, huỷ đơn sau đó.
+
+**Luồng xuống (văn phòng → máy):**
+- Mỗi delivery có `Version` (tăng mỗi lần sửa). App lưu bản chụp + version vào SQLite trên máy.
+- Văn phòng đổi lịch → tăng version, gửi **push** (FCM/APNS) "lộ trình đã đổi" → app có mạng thì kéo lại (pull) các delivery có version mới. Push chỉ là **tín hiệu**, không chứa dữ liệu, không đảm bảo tới → app vẫn kéo định kỳ và khi mở app.
+- Thay đổi quan trọng với delivery đã giao cho tài xế → đánh dấu cần xác nhận lại (giống cờ **RedeployRequired** Hiệp làm ở Joblogic: hạn mức đổi sau khi visit đã deploy xuống thiết bị kỹ thuật viên, nên phải deploy lại). Văn phòng thấy "tài xế chưa nhận bản mới" → gọi điện.
+- Chỉ tải phần thay đổi (delta theo version / `updatedSince`); dữ liệu tham chiếu thì so hash (Joblogic tính **library hash** để thiết bị chỉ tải lại thư viện đã đổi).
+
+**Luồng lên (máy → server) và idempotency:**
+- Mỗi hành động trên máy (xác nhận giao, thu tiền) sinh **`ClientOperationId` (GUID) ngay trên máy**, lưu vào hàng đợi outbox của app, gửi lại tới khi server trả thành công.
+- Server lưu id đã xử lý (unique index) → nhận lại lần 2 thì trả kết quả cũ, **không thu tiền 2 lần** (cùng mẫu với Pragmatic idempotency của Hiệp).
+- Ảnh gửi riêng, lớn: upload thẳng lên S3 bằng **presigned URL**, có thể resume; bản ghi xác nhận tham chiếu tới key ảnh.
+- Ghi **thời điểm thực tế trên máy** (`OccurredAt`, kèm GPS) tách khỏi thời điểm server nhận (`ReceivedAt`), vì đồng bộ có thể muộn vài giờ.
+
+**Xung đột** (văn phòng huỷ đơn trong khi tài xế đang offline giao xong): không có công thức chung, phải hỏi PO. Nguyên tắc: **sự kiện thực tế ngoài đời thắng** (shed đã nằm ở sân khách thì ghi nhận đã giao), nhưng tạo **cảnh báo cho văn phòng xử lý** thay vì máy tự gộp âm thầm. So version: lệnh từ máy mang `BaseVersion`; khác version hiện tại → đưa vào danh sách cần người xem.
+
+```csharp
+[HttpPost("deliveries/{id}/complete")]
+public async Task<IActionResult> Complete(Guid id, CompleteDeliveryRequest req)
+{
+    var existing = await _db.ProcessedOperations.FindAsync(req.ClientOperationId);
+    if (existing is not null) return Ok(existing.Result);       // retry → kết quả cũ
+
+    var delivery = await _db.Deliveries.SingleAsync(d => d.Id == id);
+    var outcome = delivery.Complete(req.OccurredAt, req.SignatureKey, req.PhotoKeys, req.BaseVersion);
+    // outcome = Completed hoặc CompletedWithConflict (đơn đã bị huỷ/đổi) → tạo task cho văn phòng
+
+    _db.ProcessedOperations.Add(new ProcessedOperation(req.ClientOperationId, outcome));
+    await _db.SaveChangesAsync();   // cùng transaction; unique key chặn 2 request song song
+    return Ok(outcome);
+}
+```
+
+Thu tiền tại chỗ: tốt nhất qua thiết bị/SDK của payment provider (Stripe Terminal…), tiền thật do provider xác nhận qua webhook; app chỉ ghi "đã nhận séc/tiền mặt" kèm ảnh → kế toán đối soát. Không để app offline tự quyết định số dư.
+
+Câu mẫu:
+> I'd treat what's on the driver's phone as a snapshot with a version number. When the office reschedules, we bump the version and send a push, but the push is only a hint; the app also pulls changes whenever it's online, and the office can see which drivers haven't picked up the latest version. It's the same idea as the "redeploy required" flag I built at Joblogic, where engineers' devices held a copy of the visit. Going the other way, every action on the phone gets an operation ID created on the device, and the server stores processed IDs, so a retry after a dropped connection never records a delivery or a payment twice. If the office cancelled an order that the driver had already delivered offline, I wouldn't merge it silently: the real-world event wins, and we raise a task for the office.
+
+#### 8.6.5 Thông báo khách (SMS/email)
+
+**Khi nào gửi:** đã lên lịch giao (ngày + cửa sổ giờ), nhắc trước 1–2 ngày (nhắc chuẩn bị mặt bằng), "tài xế đang trên đường" (tuỳ), đã giao xong (kèm ảnh, link hoá đơn/số dư), đổi lịch/huỷ.
+
+**Thiết kế:**
+- Gửi **qua queue/background**, không gọi Twilio/SendGrid trong request lên lịch: provider chậm/lỗi không được làm hỏng việc lưu lịch. Sự kiện `DeliveryScheduled` → outbox → worker gửi.
+- **Idempotent**: key = `(DeliveryId, NotificationType, ScheduleVersion)`, unique index trên bảng `NotificationLog`. Queue at-least-once gửi lại message → kiểm tra log, không nhắn khách 2 lần. Đổi lịch → version mới → tin mới hợp lệ.
+- **Nhắc trước ngày giao**: job định kỳ quét delivery ngày mai **theo timezone của khách/xưởng**, gửi trong giờ hợp lý (không nhắn 6 giờ sáng); trước khi gửi kiểm tra lại lịch còn đúng không (đã dời thì bỏ).
+- **Opt-out / đồng ý**: Mỹ có luật **TCPA** (SMS cần đồng ý), trả lời **STOP** phải ngừng (Twilio tự xử lý STOP và báo lại) → lưu trạng thái đồng ý theo kênh; email marketing khác email giao dịch. Mình không phải luật sư → "check with the PO/legal", nhưng biết từ khoá là điểm cộng.
+- Template theo tenant (tên công ty bán shed, logo), số điện thoại theo định dạng **E.164** (`+1…`).
+- Retry có backoff khi provider lỗi tạm thời; lỗi vĩnh viễn (số sai) → ghi lại, hiện cho văn phòng; dead-letter queue.
+- Lưu lịch sử gửi (đã gửi, đã tới, thất bại từ webhook trạng thái của provider) → hỗ trợ trả lời "tôi không nhận được tin".
+
+```csharp
+public async Task Handle(DeliveryScheduled e, CancellationToken ct)
+{
+    var key = $"{e.DeliveryId}:{NotificationType.Scheduled}:{e.ScheduleVersion}";
+    if (await _db.NotificationLogs.AnyAsync(n => n.Key == key, ct)) return;   // đã gửi
+
+    var customer = await _customers.GetAsync(e.CustomerId, ct);
+    if (!customer.SmsConsent) return;                                          // tôn trọng opt-out
+
+    var msgId = await _sms.SendAsync(customer.PhoneE164, _templates.Render(e), ct);
+    _db.NotificationLogs.Add(new NotificationLog(key, msgId, _time.GetUtcNow()));
+    await _db.SaveChangesAsync(ct);   // unique index trên Key chặn worker song song
+}
+```
+
+Lưu ý trung thực: giữa "đã gửi SMS" và "đã ghi log" vẫn có khe nhỏ (crash đúng lúc đó → gửi lại 1 lần). Gửi tin nhắn ra ngoài không thể exactly-once tuyệt đối; giảm bằng cách ghi log trạng thái `Sending` trước, hoặc truyền idempotency key cho provider nếu provider hỗ trợ. Nói được giới hạn này là mức Senior.
+
+Câu mẫu:
+> Notifications are a side effect, so they shouldn't be able to break scheduling. The scheduling transaction writes an event to an outbox, and a worker sends the SMS or email. The queue delivers at least once, so each message has a key — delivery, notification type and schedule version — with a unique index, so a redelivered message doesn't text the customer twice, but a reschedule still sends a new one. Reminders run per the customer's time zone at a sensible hour, and re-check the schedule just before sending. We store consent per channel and honour STOP replies, which matters in the US under TCPA. Strictly speaking, sending to an external provider can't be exactly-once, so I'd aim for "at most one duplicate in a rare crash" and log every send for support.
+
+#### 8.6.6 Câu hỏi luyện + tự kiểm tra (Mid vs Senior)
+
+1. *Two managers reorder the production queue at the same time. What happens?*
+   Mid: "dùng transaction". Senior: đặt tên lost update, rowversion → 409 + refresh, SignalR, cân nhắc version theo cả hàng đợi.
+2. *How would you prevent overbooking a delivery truck?*
+   Mid: "kiểm tra số lượng trước khi lưu". Senior: gọi tên check-then-act race, atomic conditional UPDATE / `UPDLOCK`, vì sao `lock` C# và Serializable không ổn, test song song chứng minh.
+3. *The office reschedules a delivery while the driver is offline.* → version + push là tín hiệu + pull + cảnh báo khi tài xế chưa nhận, xung đột cho người xử lý.
+4. *The driver app retried and the payment was recorded twice. How do you fix and prevent it?* → idempotency key sinh trên máy, unique index, script sửa dữ liệu có audit, báo PO số đơn bị ảnh hưởng.
+5. *A customer says they got the delivery SMS three times.* → at-least-once queue không có khoá idempotent; thêm `NotificationLog` unique key; kiểm tra log provider; nói về giới hạn exactly-once.
+6. *How do you know who marked a shed as built?* → state machine + bảng history append-only + đăng nhập PIN trên tablet dùng chung.
+7. *What would you ask the PO before building delivery scheduling?* → năng lực tính theo chuyến hay kích thước, vùng giao và phí, có yêu cầu trả đủ tiền trước giao không, site readiness, ai được dời lịch, thông báo khách những lúc nào, giao lại có phí không.
 
 ### 8.7 Inventory
 - Hàng có sẵn bán ngay; trạng thái Available → Reserved (đang có quote/order giữ) → Sold. Chống bán 2 lần: atomic UPDATE `WHERE Status='Available'` hoặc rowversion.
