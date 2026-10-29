@@ -1,4 +1,4 @@
-# Ôn nhanh JD Backend Developer (Go/Java/Node/PHP · MySQL · ClickHouse · Redis · ES · Kafka/RabbitMQ)
+# Agapi — ôn phỏng vấn Backend Developer (Go/Java/Node/PHP · MySQL · ClickHouse · Redis · ES · Kafka/RabbitMQ)
 
 ## 0. Pitch 60 giây (EN)
 "I'm a backend-focused full-stack engineer with 4 years of experience. For the last two years I worked on PlaySweeps, a US sweepstakes gaming platform with over 2 million registered players, built on .NET 8, Redis, Cosmos DB and Azure messaging. I was a feature lead: I wrote technical designs, implemented and released features like the Quest Engine V2 and the Pragmatic Play seamless wallet, reviewed PRs and did on-call. I've also built services in NestJS/Node and Go. What I care about most is correctness under concurrency — idempotency, locking, retries — and observability in production."
