@@ -74,3 +74,8 @@
 - Stack server hiện tại Java (Netty/Spring?) hay C++? Có dùng framework actor không?
 - CCU cao nhất? Mô hình triển khai (VM, K8s)?
 - Đối tác quốc tế: quy trình làm việc, timezone?
+
+## Tiến độ học (dạy lại từ nền, 2026-10-30)
+Đã xong: B1 race condition trong RAM (Atomic vs synchronized, 2 lần Atomic ≠ atomic; synchronized ≠ RedLock) · room nằm trên một instance (allocator + SET NX + kết nối thẳng) · B2 TCP/UDP/socket/HTTP/WebSocket · B3 event loop (epoll, không chặn loop) · B4 state trong RAM · B5 tick và room · B6 ranking (đang ở câu tự kiểm tra).
+Còn lại: matchmaking · guild · event/live ops · payment IAP · deadlock + thứ tự khoá · Java core (collections, ExecutorService, CompletableFuture, GC) · C++ tối thiểu · tối ưu hiệu năng · luyện pitch + câu trả lời về khoảng trống Java · mock.
+User hay bỏ qua câu tự kiểm tra → nhắc trả lời bằng miệng.
