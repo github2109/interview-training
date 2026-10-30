@@ -43,9 +43,9 @@ Ký hiệu trạng thái: ⬜ chưa học · 📖 đang học · ✅ xong (đã 
 | C5 | Messaging, background job, outbox, saga | SA | Trung bình 50% | ⬜ |
 | C6 | Scale và load balancer: thuật toán, sticky session, health check, CAP | SA | Trung bình–Cao (Agapi đã hỏi) | ⬜ |
 | C7 | SQL vs NoSQL (MongoDB, Cosmos DB) | SA | Trung bình (Agapi đã hỏi) | ⬜ |
-| C8 | Tích hợp bên thứ ba và resilience | SA | Trung bình 55% | ⏳ |
-| C9 | Observability và chẩn đoán "request mất 8 giây" | SA | Cao (Agapi đã hỏi) | ⏳ |
-| C10 | CI/CD, deploy an toàn, build .NET nhanh hơn | SA | Trung bình–Cao 60% | ⏳ |
+| C8 | Tích hợp bên thứ ba và resilience | SA | Trung bình 55% | ⬜ |
+| C9 | Observability và chẩn đoán "request mất 8 giây" | SA | Cao (Agapi đã hỏi) | ⬜ |
+| C10 | CI/CD, deploy an toàn, build .NET nhanh hơn | SA | Trung bình–Cao 60% | ⬜ |
 | C11 | AWS (map từ Azure) | SA | Trung bình–Cao 60% | ⏳ |
 | C12 | Multi-tenant SaaS | SA | Trung bình–Cao 60% | ⏳ |
 | C13 | System design nhỏ | SA | Trung bình 40% | ⏳ |
@@ -2893,173 +2893,350 @@ Ví dụ con số: 3 instance, round robin, 1/10 request là sinh PDF mất 8 s,
 
 ---
 
-## C8. Tích hợp bên thứ ba và resilience ⏳
+## C8. Tích hợp bên thứ ba và resilience
 
-> ⏳ **Chưa viết lại sâu.** Dưới đây là nội dung bản cũ (số tham chiếu section bên trong là số bản cũ, xem bảng đối chiếu ở 0.2). Claude sẽ viết lại trước khi Hiệp học tới.
+**Vì sao cần.** Ops Hub sống nhờ tích hợp: cổng thanh toán, tính thuế theo địa chỉ, nhà cung cấp RTO (rent-to-own), configurator 3D, SMS/email, phần mềm kế toán. Bên ngoài **sẽ** chậm, sập, gửi trùng, gửi sai thứ tự. SA hỏi: "provider sập 30 phút giữa giờ làm việc thì người dùng thấy gì". Hiệp có kinh nghiệm thật: **Pragmatic Play seamless wallet** (callback bet/result/refund, xác thực hash, idempotency), Nexus, Immutable/webhook burn-mint ở Altar; Joblogic có Stripe webhook, timer retry backoff và **đối soát Stripe hằng ngày** (đã đọc kiến trúc, Hiệp không tự xây phần này).
 
-Ops Hub có nhiều tích hợp (payment, thuế, RTO provider, configurator, SMS/email). SA từ Urbanise (tích hợp ngân hàng) có thể hỏi.
+### C8.1 Vì sao một provider chậm có thể làm sập cả hệ thống mình
+Ví dụ con số: API 200 RPS, 10% request gọi API thuế. Bình thường thuế trả 100 ms. Thuế chậm lên **30 s**, HttpClient để mặc định **100 s timeout**:
+- Request đang chờ thuế = 20 RPS × 30 s = **600 request treo** (Little's Law, A1).
+- Mỗi request giữ connection DB/transaction đang mở nếu gọi ngoài **trong transaction** → cạn pool → cả các endpoint không liên quan đến thuế cũng timeout.
+- Người dùng bấm lại → thêm tải (retry storm).
+Đây là **cascading failure**. Mọi pattern dưới đây nhằm **cô lập** sự cố của bên ngoài.
 
-### C8.1 Webhook vào
-1. **Xác thực chữ ký** (HMAC, so sánh constant-time, kiểm timestamp chống replay) — giống Pragmatic hash.
-2. **Lưu raw event** (bảng inbox, UNIQUE event id).
-3. **Trả 2xx nhanh** (provider có timeout ngắn, sẽ retry).
-4. Xử lý **async** (queue), **idempotent** theo event id; xử lý được **sai thứ tự** (kiểm tra version/timestamp, trạng thái hiện tại).
-5. Màn hình/bảng **integration errors** để vận hành xem và retry tay (mapping SKU sai…).
-6. Job **đối soát** định kỳ với API provider (Joblogic: đối soát Stripe hằng ngày) để bắt event bị mất.
+### C8.2 Bộ pattern gọi ra ngoài
+| Pattern | Làm gì | Ví dụ cấu hình |
+|---|---|---|
+| **Timeout** | Không chờ vô hạn; mọi lời gọi có hạn | Per-attempt 2–5 s, tổng 10 s; `HttpClient.Timeout` mặc định 100 s là quá dài |
+| **Retry + exponential backoff + jitter** | Thử lại lỗi tạm thời, giãn dần, thêm ngẫu nhiên để không dồn cùng lúc | 3 lần: ~200 ms, ~400 ms, ~800 ms ± jitter |
+| **Circuit breaker** | Lỗi vượt ngưỡng → **mở mạch**, fail ngay không gọi; sau một lúc **half-open** thử vài request | Lỗi ≥ 50% trong 30 s, tối thiểu 20 request → mở 30 s |
+| **Bulkhead** | Giới hạn số lời gọi đồng thời tới một provider | Tối đa 20 lời gọi thuế song song; thừa → từ chối/xếp hàng |
+| **Fallback** | Có câu trả lời thay thế | Giá trị cache, trạng thái "pending" |
+| **Rate limit phía mình** | Tôn trọng quota của provider (429, `Retry-After`) | Hàng đợi + worker gửi theo nhịp |
 
-### C8.2 Gọi ra ngoài
-- **Timeout** cho mọi lời gọi (mặc định HttpClient 100s là quá dài).
-- **Retry** có exponential backoff + jitter, **chỉ cho lỗi tạm thời** (5xx, 408, 429, timeout) và **chỉ khi thao tác idempotent** (hoặc có idempotency key của provider).
-- **Circuit breaker**: lỗi liên tục → mở mạch, fail nhanh, thử lại sau → bảo vệ hệ thống mình và provider.
-- **Bulkhead**: giới hạn số lời gọi đồng thời tới một provider để không ăn hết thread/connection.
-- **Fallback / graceful degradation**: API thuế sập → dùng mức thuế cache gần nhất và đánh dấu "cần xác nhận"; RTO provider sập → lưu yêu cầu "pending", xử lý lại sau, báo người dùng.
-- .NET: `IHttpClientFactory` + `Microsoft.Extensions.Http.Resilience` (`AddStandardResilienceHandler`) / Polly v8.
-- **Anti-corruption layer**: adapter dịch model ngoài → model nội bộ; lỗi provider → lỗi nghiệp vụ rõ.
-- Log + correlation id + metric theo provider (latency, error rate).
-- Rate limit của provider → hàng đợi, batch.
-- Secret của provider ở Secrets Manager, xoay vòng.
+**Retry chỉ an toàn khi**: lỗi là tạm thời (timeout, 408, 429, 5xx, lỗi kết nối) **và** thao tác idempotent (GET, PUT) hoặc có **idempotency key** của provider (Stripe `Idempotency-Key`). Retry `POST /charges` không key sau khi timeout → **trừ tiền hai lần**, vì timeout không có nghĩa là bên kia chưa làm.
 
-### C8.3 Câu mẫu
-> For outgoing calls I always set a timeout, retry only transient errors with exponential backoff and jitter, and only when the operation is idempotent or I can pass the provider an idempotency key. A circuit breaker stops us from hammering a provider that's down. For the user, the request isn't lost: we save it as pending and process it when the provider recovers. For incoming webhooks, I verify the signature, store the raw event with a unique event ID, return 200 quickly and process it asynchronously, so a retried or out-of-order webhook can't apply a payment twice.
+Thứ tự lớp trong .NET 8 (`Microsoft.Extensions.Http.Resilience`, xây trên **Polly v8**):
+```csharp
+builder.Services.AddHttpClient<ITaxClient, TaxClient>(c => c.BaseAddress = new(cfg["Tax:Url"]!))
+    .AddStandardResilienceHandler(o =>
+    {
+        o.AttemptTimeout.Timeout = TimeSpan.FromSeconds(3);        // mỗi lần thử
+        o.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(10);  // tổng, gồm cả retry
+        o.Retry.MaxRetryAttempts = 3;                              // backoff mũ + jitter mặc định
+        o.CircuitBreaker.FailureRatio = 0.5;
+        o.CircuitBreaker.BreakDuration = TimeSpan.FromSeconds(30);
+    });
+```
+Pipeline chuẩn: rate limiter → **total timeout** → retry → circuit breaker → **attempt timeout**. Mặc định `AddStandardResilienceHandler` **retry cả POST**; với API không idempotent thì tắt retry cho method đó (`o.Retry.DisableForUnsafeHttpMethods()`) hoặc gửi idempotency key.
 
-### C8.4 Câu hỏi luyện
-1. The RTO provider API is down for 30 minutes during business hours. What does the user see? What happens to pending requests?
-2. An external API is occasionally slow. How do you protect your system?
-3. Explain retry, timeout, circuit breaker and bulkhead.
-4. Why must every external HTTP call have a timeout?
-5. When is retrying dangerous?
-6. How do you receive webhooks reliably? What if they arrive out of order?
-7. How do you know if you missed a webhook?
-8. How do you integrate a provider whose data model doesn't match yours?
-9. How do you test an integration with a third-party API?
-10. What is graceful degradation? Give an example here.
+### C8.3 Graceful degradation — người dùng thấy gì
+Trả lời câu "provider sập 30 phút" theo từng tích hợp:
+- **API thuế sập**: dùng mức thuế cache gần nhất theo zip (TTL), đánh dấu báo giá "thuế cần xác nhận lại" trước khi chốt hợp đồng; không chặn nhân viên lập báo giá.
+- **RTO provider sập**: lưu hồ sơ trạng thái **"Pending submission"**, báo "đã nhận, sẽ gửi khi đối tác hoạt động lại", worker gửi lại khi circuit đóng; không bắt nhân viên nhập lại.
+- **Cổng thanh toán sập**: **không** giả vờ thành công; cho chọn cách khác hoặc thử lại; đơn giữ trạng thái chờ thanh toán.
+- **SMS/email sập**: xếp hàng, gửi muộn; với nhắc giao hàng thì có hạn chót (sau giờ giao thì huỷ, không gửi nhắc vô nghĩa).
+- Nguyên tắc: **ghi nhận yêu cầu bền vững trước** (DB/outbox), xử lý ngoài sau; UI nói rõ trạng thái.
+
+### C8.4 Nhận webhook đúng cách
+1. **Xác thực**: HMAC-SHA256 trên **raw body** + secret, so sánh **constant-time** (`CryptographicOperations.FixedTimeEquals`), kiểm **timestamp** trong cửa sổ (vd 5 phút) để chống replay. Đọc raw body trước khi model binding (đọc lại body cần `EnableBuffering`).
+2. **Lưu raw event** vào bảng inbox, **UNIQUE(provider, eventId)** → trùng thì trả 200 luôn.
+3. **Trả 2xx nhanh** (Stripe chờ khoảng vài chục giây rồi coi là lỗi và retry theo backoff trong nhiều ngày). Không gọi API khác, không sinh PDF trong request webhook.
+4. **Xử lý async**, idempotent (C5.3).
+5. **Sai thứ tự**: `payment_intent.succeeded` có thể đến sau `charge.refunded`. Không tin thứ tự; so **trạng thái hiện tại** và timestamp/version, hoặc **gọi lại API provider** để lấy trạng thái mới nhất rồi áp dụng (re-fetch).
+6. **Event bị mất**: provider có thể không gửi được (bên mình down quá lâu). → **Job đối soát (reconciliation)** định kỳ so dữ liệu mình với API provider (Joblogic: đối soát Stripe hằng ngày), báo lệch.
+7. Màn hình **integration errors** cho vận hành: xem lỗi, sửa mapping (SKU sai), bấm retry.
+
+Liên hệ Pragmatic (thật): callback seamless wallet đi theo đúng các bước đó ở chiều ngược lại: xác thực hash, idempotency theo transaction reference (C3.3), trùng thì trả lại kết quả cũ, refund đến trước bet thì ghi tombstone.
+
+### C8.5 Anti-corruption layer (ACL)
+- Adapter dịch model của provider → model nội bộ (`TaxQuote`, `RtoApplicationStatus`), map lỗi provider → lỗi nghiệp vụ có mã (`TaxServiceUnavailable`). Domain **không biết** JSON của provider.
+- Lợi: đổi provider (Avalara → TaxJar) chỉ sửa adapter; test domain không cần mạng.
+- Lưu **raw request/response** (đã che dữ liệu nhạy cảm) để tranh chấp và debug.
+
+### C8.6 Kiểm thử tích hợp
+- Unit test adapter với **HTTP handler giả** (stub `HttpMessageHandler`) hoặc **WireMock.Net**: trả 500, 429 kèm `Retry-After`, timeout, JSON lạ.
+- **Contract test** (Pact) nếu hai bên cùng công ty.
+- Sandbox của provider cho test end-to-end; **không** gọi provider thật trong CI thường xuyên.
+- Fault injection: Polly **Simmy** (chaos strategies trong Polly v8) để thử circuit breaker.
+
+### C8.7 Giám sát tích hợp
+- Metric theo **từng provider**: latency p50/p99, error rate, trạng thái circuit, số request bị từ chối do bulkhead, độ dài hàng pending.
+- Alert: error rate provider > ngưỡng, circuit mở, hàng pending tăng, DLQ > 0, **đối soát phát hiện lệch**.
+- Correlation id gửi kèm header ra ngoài nếu provider cho, và lưu id của provider (request id) vào log.
+
+### C8.8 Câu hỏi phỏng vấn & trả lời mẫu
+
+**Q1. The RTO provider's API is down for 30 minutes during business hours. What happens?**
+> The user shouldn't lose work. We save the application in our database as pending submission and tell the user it's received and will be sent when the partner is back. A circuit breaker stops us calling the provider while it's failing, so our own requests stay fast, and a background worker retries pending submissions with backoff once the circuit closes. Operations can see the pending list, and we alert if it grows or items wait too long.
+
+**Q2. An external API is sometimes slow. How do you protect your system?**
+> A slow dependency is worse than a dead one, because requests pile up and hold threads and connections. So every call has a short per-attempt timeout and an overall timeout, retries only for transient errors with backoff and jitter, a circuit breaker so we fail fast while it's unhealthy, and a bulkhead limiting concurrent calls to that provider. I never call it inside an open database transaction. In .NET I'd use `AddStandardResilienceHandler` on a typed `HttpClient` and tune it.
+
+**Q3. When is retrying dangerous?**
+> When the operation isn't idempotent. A timeout doesn't tell you whether the provider did the work, so retrying a payment without an idempotency key can charge twice. Retries also make outages worse when everyone retries at once, which is why I use exponential backoff with jitter, a retry budget and a circuit breaker. And I never retry permanent errors like validation failures.
+
+**Q4. How do you receive webhooks reliably?**
+> Verify the signature over the raw body with a constant-time comparison and check the timestamp to block replays. Store the raw event with a unique constraint on the provider's event ID, return 200 quickly, and process it asynchronously and idempotently. Since events can arrive out of order, I compare with the current state or re-fetch the object from the provider before applying it. And because events can be missed entirely, a daily reconciliation job compares our records with the provider's API.
+
+**Q5. How do you know you missed a webhook?**
+> You can't from the webhook alone, so you reconcile: a scheduled job lists the provider's transactions for the period and compares them with ours, flags differences, and either fixes them automatically or alerts someone. Joblogic ran a daily reconciliation against Stripe for exactly this reason.
+
+**Q6. How do you integrate a provider whose model doesn't match yours?**
+> Behind an anti-corruption layer: an adapter that translates their requests, responses and errors into our domain types, so the rest of the code never sees their JSON. That keeps the domain clean, lets us swap the provider, and makes the adapter the one place to test with stubbed HTTP responses, including errors and timeouts.
+
+**Q7. Explain timeout, retry, circuit breaker and bulkhead.**
+> A timeout bounds how long one call can take. A retry repeats a call that failed for a transient reason, with growing delays. A circuit breaker watches the failure rate and, past a threshold, stops calling for a while and fails immediately, then lets a few test calls through. A bulkhead caps concurrent calls to one dependency, so if it hangs it can only consume its own slice of resources.
+
+### C8.9 Tự kiểm tra
+1. Tính số request treo khi 20 RPS gọi một provider chậm 30 s. Vì sao cả hệ thống chậm theo?
+2. Retry `POST` sau timeout: nguy hiểm gì? Cách làm an toàn?
+3. Ba trạng thái của circuit breaker.
+4. Bảy bước nhận webhook; bước nào bắt event bị mất?
+5. Người dùng thấy gì khi API thuế sập? Khi cổng thanh toán sập?
+6. Anti-corruption layer đặt ở đâu và vì sao?
 
 ---
 
-## C9. Observability và chẩn đoán request chậm ⏳
+## C9. Observability và chẩn đoán "request mất 8 giây"
 
-> ⏳ **Chưa viết lại sâu.** Dưới đây là nội dung bản cũ (số tham chiếu section bên trong là số bản cũ, xem bảng đối chiếu ở 0.2). Claude sẽ viết lại trước khi Hiệp học tới.
+**Vì sao cần.** Đây là câu Agapi hỏi và Hiệp **yếu nhất**: trả lời theo kiểu đoán ("chắc do query chậm, thêm index") thay vì **có hệ thống**. Người phỏng vấn Senior muốn nghe: đo gì trước, chia thời gian 8 s ra từng phần bằng công cụ gì, phân biệt các nguyên nhân bằng dấu hiệu, xử lý tạm và tận gốc. Phần này **nối** A1 (OS), A4 (async/thread pool), A5 (index/plan), A6 (lock), C4 (Redis), C8 (provider) thành một quy trình.
 
-### C9.1 Ba trụ cột
-- **Logs**: sự kiện rời rạc, structured (JSON, template `{OrderId}`), có correlation/trace id, tenant id, user id; **không log** secret/PII. Mức: Debug/Info/Warning/Error/Critical.
-- **Metrics**: số liệu tổng hợp theo thời gian (request rate, error rate, latency p50/p95/p99, queue length, CPU, memory, thread pool). **RED** (Rate, Errors, Duration) cho service; **USE** (Utilization, Saturation, Errors) cho tài nguyên.
-- **Traces**: đường đi của một request qua nhiều service (span); W3C `traceparent`; **OpenTelemetry**.
-- Công cụ đã dùng: **Application Insights, Grafana Loki, Splunk** (PlaySweeps); AWS: CloudWatch + X-Ray.
-- **Alert** theo triệu chứng người dùng (error rate, latency SLO), không theo mọi thứ; runbook đi kèm.
-- **SLI/SLO/SLA**: chỉ số / mục tiêu nội bộ / cam kết hợp đồng.
+Kinh nghiệm thật: on-call PlaySweeps, theo dõi exception spike, điều tra bằng **Application Insights, Grafana Loki, Splunk** (Splunk nhận BI event để lần theo các bước user đã đi), ra hotfix, chốt với tech lead và QA. Altar dùng New Relic.
 
-### C9.2 Quy trình điều tra sự cố (nói theo khung)
-1. **Tác động**: ai bị, bao nhiêu, từ khi nào (dashboard, alert). Có cần giảm tác động ngay (rollback, tắt feature flag, scale)?
-2. **Thay đổi gần đây**: deploy, config, migration, traffic, provider.
-3. **Khoanh vùng**: endpoint nào, tenant nào, instance nào; trace một request chậm.
-4. **Xác nhận nguyên nhân** bằng dữ liệu (log, metric, query plan, dump).
-5. **Xử lý tạm** → **xử lý gốc** → **phòng ngừa** (test, alert, runbook) → postmortem không đổ lỗi.
+### C9.1 Ba trụ cột và cách dùng
+- **Logs**: sự kiện rời rạc, **structured** (`_log.LogInformation("Order {OrderId} confirmed for {TenantId}", ...)`, không nối chuỗi), luôn có **TraceId**, tenant, user. **Không log** password, token, số thẻ, PII đầy đủ.
+- **Metrics**: số tổng hợp theo thời gian, rẻ, dùng để **alert và nhìn xu hướng**. **RED** cho service (Rate, Errors, Duration); **USE** cho tài nguyên (Utilization, Saturation, Errors).
+- **Traces**: một request đi qua những đâu, mỗi chặng (span) mất bao lâu. Chuẩn **W3C `traceparent`**, thư viện **OpenTelemetry** (.NET có `Activity`/`ActivitySource` sẵn). Application Insights, X-Ray, Jaeger, Tempo đều hiển thị được.
+- Cách dùng: **metric báo có vấn đề → trace chỉ chỗ chậm → log cho chi tiết**.
 
-### C9.3 Tình huống kinh điển
-| Tình huống | Hướng điều tra |
-|---|---|
-| API đột nhiên chậm | Trace → thời gian ở DB/HTTP ngoài/app? DB: Query Store, blocking, plan đổi (parameter sniffing), statistics; app: thread pool starvation (`dotnet-counters`), GC; ngoài: latency provider |
-| Prod 10s, local 500ms | Khối lượng dữ liệu khác (index, plan), mạng (DB khác region), cấu hình (log level, pool), tải đồng thời, cold start, provider thật chậm |
-| CPU cao | `dotnet-counters` → `dotnet-trace` (flame graph): vòng lặp nóng, regex, serialize lớn, GC nhiều (cấp phát nhiều), lock contention |
-| Memory tăng mãi | `dotnet-counters` (gc-heap-size, gen2) → `dotnet-gcdump`/`dotnet-dump` so 2 thời điểm: cache không giới hạn, static list, event handler, captive DbContext |
-| Latency cao, CPU thấp | **Thread-pool starvation** (`.Result`) hoặc chờ I/O/lock/connection pool |
-| Lỗi chỉ ở một tenant | Dữ liệu đặc biệt, cấu hình tenant, dữ liệu lớn (noisy neighbor) |
-| Không tái hiện local | Log/trace theo correlation id, dựng lại hành trình (PlaySweeps: Splunk BI event), dữ liệu prod (ẩn danh), feature flag/cấu hình khác |
-| Trả về bản ghi trùng | JOIN nhân dòng, phân trang offset không ổn định (sort không xác định), retry tạo trùng (thiếu UNIQUE) |
+### C9.2 Đọc latency: vì sao không dùng trung bình
+- **p50** (median): một nửa request nhanh hơn số này. **p99**: 99% nhanh hơn, 1% chậm hơn.
+- Ví dụ: 99 request 100 ms + 1 request 8.000 ms → **trung bình 179 ms** (trông ổn), p50 = 100 ms, **p99 ≈ 8 s**. Trung bình che mất người dùng bị chậm.
+- Một trang gọi 20 API → xác suất ít nhất một API rơi vào 1% chậm ≈ 1 − 0,99²⁰ ≈ **18%** → p99 của từng API thành trải nghiệm thường gặp của người dùng.
+- **Hình dạng** cho manh mối:
+  - **Mọi request** chậm đều → tài nguyên chung (DB nghẹt, thread pool, CPU, GC).
+  - **Chỉ p99** chậm → chờ lock, GC gen2, cold start, một tenant/dữ liệu lớn, retry, pool gần cạn.
+  - **Chỉ một endpoint** → query/plan của endpoint đó, provider nó gọi.
+  - **Chỉ một instance** → instance đó (noisy neighbor, memory leak, vừa khởi động).
+  - **Chỉ một tenant/khách** → dữ liệu lớn bất thường, parameter sniffing.
+  - **Bắt đầu đột ngột lúc 10:05** → deploy, config, migration, job, traffic lúc đó.
 
-### C9.4 Performance
-- Đo trước khi tối ưu (BenchmarkDotNet cho code, load test k6/JMeter cho API).
-- Thứ tự hay gặp: query/index → N+1 → payload lớn (projection, phân trang, nén) → cache → async/parallel hợp lý → scale.
-- Response compression, `AsNoTracking`, keyset pagination, tránh `ToList()` sớm, stream file lớn.
+### C9.3 Quy trình 6 bước (nói theo đúng khung này)
+1. **Tác động và giảm thiệt hại**: ai bị, bao nhiêu %, từ khi nào, endpoint nào. Nếu nặng: **rollback**, tắt feature flag, scale tạm, kill query gây block. Khôi phục dịch vụ **trước**, tìm nguyên nhân sau.
+2. **Cái gì đã thay đổi**: deploy, config, migration/index, dữ liệu tăng, traffic, provider, hạ tầng.
+3. **Khoanh vùng bằng trace**: lấy **một request chậm cụ thể** (TraceId), xem 8 s nằm ở đâu:
+   - Phần lớn trong **span SQL** → sang bước 4a.
+   - Trong **span HTTP ra ngoài** → provider (C8).
+   - Trong **span Redis** → C4 (lệnh chậm, timeout, starvation).
+   - **Khoảng trống không có span con** (app "đứng" mà không làm gì) → chờ thread pool, chờ lock trong process, GC, chờ connection pool → bước 4b.
+4. **Xác nhận nguyên nhân bằng công cụ** (4a DB, 4b app).
+5. **Xử lý tạm** rồi **xử lý tận gốc**.
+6. **Phòng ngừa**: alert, test, runbook, postmortem không đổ lỗi (blameless).
 
-### C9.5 Câu hỏi luyện
-1. What should a backend service log? What should it never log?
-2. Logs vs metrics vs traces?
-3. An API suddenly becomes slow. Walk me through your investigation.
-4. An endpoint takes 10 s in production but 500 ms locally. Why?
-5. CPU is high on a .NET service. What do you check?
-6. Memory keeps growing. How do you find the leak?
-7. How would you make the Ops Hub observable enough to debug an incident?
-8. Tell me about an incident you handled on call.
-9. What do you alert on?
+### C9.4a Nhánh database: phân biệt 4 nguyên nhân
+| Dấu hiệu | Nguyên nhân | Xác nhận bằng | Tạm | Tận gốc |
+|---|---|---|---|---|
+| Query chậm **mọi lúc**, đọc nhiều trang | Thiếu index, scan, key lookup hàng loạt, non-sargable, **FK không có index** (DELETE cha quét bảng con) | **Actual execution plan**, `SET STATISTICS IO, TIME ON` (logical reads), Query Store top by duration/reads | — | Index đúng (E-S-R, INCLUDE, A5), viết lại điều kiện sargable |
+| Lúc nhanh lúc chậm, **cùng câu query**, khác tham số | **Parameter sniffing**: plan tạo cho tenant nhỏ dùng cho tenant lớn | Query Store: một query nhiều plan, plan đổi đúng lúc chậm; so actual vs estimated rows | **Force plan** cũ trong Query Store, `sp_recompile` | `OPTION (RECOMPILE)` cho query đó, `OPTIMIZE FOR`, tách query, cập nhật statistics |
+| Query bình thường nhanh, giờ **đứng chờ** | **Blocking**: transaction khác giữ lock (transaction mở lâu, gọi API trong transaction, client timeout để transaction treo — XACT_ABORT, A6) | `sys.dm_exec_requests` (`blocking_session_id`, `wait_type` = `LCK_M_*`), `sp_WhoIsActive`, blocked process report | Kill **head blocker** (sau khi xem nó là gì) | Transaction ngắn, `SET XACT_ABORT ON`, không gọi ngoài trong transaction, index để lock ít dòng, RCSI cho đọc |
+| Chậm sau một giờ cố định / sau import lớn | **Statistics cũ** → ước lượng sai → plan tồi | Estimated rows lệch xa actual rows trong plan | `UPDATE STATISTICS` | Lịch cập nhật statistics, xem auto update threshold |
+| Mọi query chậm, CPU DB 100% hoặc I/O cao | DB **quá tải** chung | Wait stats: `SOS_SCHEDULER_YIELD` (CPU), `PAGEIOLATCH_*` (đọc đĩa), `WRITELOG` (ghi log); DTU/vCore metric | Scale DB tạm | Tìm query top tài nguyên, cache, read replica |
+| App báo timeout lấy connection | **Connection pool cạn** (`Timeout expired... obtaining a connection from the pool`) | Số connection đang mở, `sys.dm_exec_sessions` theo `program_name`; connection không được `Dispose`, query chậm giữ connection lâu | Restart (chỉ là băng dán) | `using`/`await using`, sửa query chậm, không giữ connection qua lời gọi ngoài |
+
+Ví dụ thật cần nói được: `DELETE FROM Orders WHERE Id = @id` mất 8 s vì `OrderLines.OrderId` là FK **không có index** → SQL Server phải quét toàn bộ `OrderLines` để kiểm tra ràng buộc (và giữ lock trong lúc đó). SQL Server **không tự tạo index cho FK**.
+
+### C9.4b Nhánh ứng dụng .NET
+| Dấu hiệu | Nguyên nhân | Xác nhận bằng | Xử lý |
+|---|---|---|---|
+| Latency tăng mạnh, **CPU thấp**, thread count tăng dần, request "đứng" không có span con | **Thread pool starvation**: `.Result`/`.Wait()`/`Thread.Sleep` trong code async, lời gọi đồng bộ blocking I/O | `dotnet-counters monitor -n MyApp System.Runtime`: `ThreadPool Queue Length` > 0 kéo dài, `ThreadPool Thread Count` tăng ~1–2/giây; `dotnet-stack report` thấy nhiều thread kẹt ở `Task.Wait`/`GetResult`; lỗi `RedisTimeoutException` có `WORKER: Busy=...` | Tạm: tăng `ThreadPool.SetMinThreads` (băng dán). Gốc: async xuyên suốt, bỏ sync-over-async (A4) |
+| CPU cao | Vòng lặp nóng, regex backtracking, serialize payload lớn, cấp phát nhiều → GC nhiều, lock contention | `dotnet-trace collect` → flame graph (PerfView, Speedscope), counter `% Time in GC`, `Allocation Rate`, `Monitor Lock Contention Count` | Sửa đoạn nóng, giảm cấp phát, cache kết quả |
+| Chậm theo chu kỳ, pause dài | **GC gen2 / LOH**, memory gần giới hạn container | `Gen 2 GC Count`, `GC Heap Size`, `% Time in GC`; `dotnet-gcdump` | Giảm object lớn (stream thay vì `byte[]` to, `ArrayPool`), Server GC/DATAS (A3) |
+| Memory tăng mãi đến khi OOM/restart | Leak: cache không giới hạn, static collection, event handler không gỡ, captive dependency | So **hai** `dotnet-gcdump` cách nhau 30 phút, xem type tăng | Giới hạn cache (`SizeLimit`), gỡ handler, sửa DI lifetime |
+| Request đầu sau deploy chậm | Cold start: JIT, khởi tạo DI, warm-up cache, connection pool rỗng | Chỉ request đầu chậm mỗi instance | ReadyToRun, warm-up trước readiness, min instance |
+| Socket lỗi, `SocketException` khi gọi HTTP nhiều | Tạo `new HttpClient()` mỗi request → hết port (TIME_WAIT) | `netstat`/counter connection | `IHttpClientFactory` (A2) |
+
+### C9.5 Ví dụ trọn vẹn (kể như một ca thật)
+"API `GET /orders/{id}` p99 tăng từ 300 ms lên 8 s lúc 10:05, p50 vẫn 120 ms."
+1. Tác động: 3% request, mọi tenant, sau deploy 10:00. Không có lỗi 5xx, chỉ chậm.
+2. Thay đổi: deploy 10:00 thêm gọi `GetPromotionsAsync(...).Result` trong một service dùng chung.
+3. Trace một request 8 s: khoảng trống 7,5 s trước span SQL đầu tiên.
+4. `dotnet-counters`: ThreadPool Queue Length 300+, Thread Count tăng đều ~1/giây, CPU 15%. `dotnet-stack`: 180 thread đứng ở `Task.GetResult`.
+5. Tạm: rollback (hết trong 3 phút). Gốc: chuyển sang `await`, thêm analyzer cấm `.Result` (VSTHRD002 / `AsyncFixer`), load test trong pipeline.
+6. Phòng ngừa: alert p99 > 1 s trong 5 phút và ThreadPool Queue Length > 0 kéo dài.
+
+### C9.6 Prod 8 s, local 500 ms — vì sao
+- **Dữ liệu**: local 1.000 dòng, prod 50 triệu → plan khác, thiếu index không lộ ra local.
+- **Tải đồng thời**: local một người; prod 200 người cùng tranh lock, pool.
+- **Mạng**: DB/Redis khác region, N+1 query: 300 query × 1 ms local = 0,3 s, × 25 ms qua region = **7,5 s**.
+- **Cấu hình**: log level Debug ghi đồng bộ, pool size, timeout, feature flag khác.
+- **Provider thật** chậm hơn mock.
+- **Cold start**, instance nhỏ hơn, CPU bị throttle trong container.
+
+### C9.7 Alert và SLO
+- **SLI** (chỉ số đo được: % request < 500 ms), **SLO** (mục tiêu nội bộ: 99% request < 500 ms trong 30 ngày), **SLA** (cam kết hợp đồng, có phạt). **Error budget** = 1% còn lại; tiêu hết thì ưu tiên ổn định hơn tính năng.
+- Alert theo **triệu chứng người dùng** (error rate, p99, đơn không chốt được), không alert mọi CPU spike. Mỗi alert có **runbook** (làm gì đầu tiên).
+- Dashboard: RED theo endpoint, top query, DB waits, thread pool, queue length/DLQ, provider latency, theo tenant.
+
+### C9.8 Câu hỏi phỏng vấn & trả lời mẫu
+
+**Q1. A request that normally takes 200 ms now takes 8 seconds. How do you investigate?**
+> First impact: is it every request or the tail, one endpoint, one tenant or one instance, and since when — and if it's severe and started with a deploy, I roll back first. Then I take one slow request's trace and see where the eight seconds go. If it's in a SQL span, I look at the actual execution plan and Query Store to tell apart a missing index, a plan regression from parameter sniffing, or blocking, which `sys.dm_exec_requests` shows as a `blocking_session_id` with `LCK_M` waits. If it's an outgoing HTTP call, it's the provider and my timeouts. If there's a gap with no child spans and CPU is low, I suspect thread pool starvation and confirm with `dotnet-counters` — a growing thread pool queue — and `dotnet-stack` showing threads blocked on `.Result`. Each cause has a quick mitigation and a root fix, and I finish with an alert so we catch it earlier next time.
+
+**Q2. Why look at p99 rather than the average?**
+> The average hides the slow tail. Ninety-nine requests at 100 ms and one at eight seconds average under 200 ms, yet one user in a hundred waits eight seconds. And when a page makes twenty calls, nearly one page load in five hits at least one p99 call, so the tail is what users actually feel.
+
+**Q3. How do you tell parameter sniffing from blocking?**
+> Parameter sniffing is the same query being fast for some parameters and slow for others, with a different plan in Query Store and estimated rows far from actual rows; the query is busy reading pages. Blocking is the query doing nothing: in `sys.dm_exec_requests` it has a blocking session and a lock wait type, and it finishes as soon as the blocker commits. The fixes differ too: forcing a plan or adding `OPTION (RECOMPILE)` for sniffing, and shortening transactions for blocking.
+
+**Q4. How do you diagnose thread pool starvation?**
+> The symptom is high latency with low CPU and a thread count that keeps growing slowly, because the pool only adds about one or two threads a second. `dotnet-counters` shows the thread pool queue length staying above zero, and a `dotnet-stack` snapshot shows many threads blocked in `Task.Wait` or `GetResult`. Raising min threads buys time, but the fix is removing sync-over-async so threads aren't blocked waiting on I/O.
+
+**Q5. An endpoint takes 10 seconds in production but 500 ms locally. Why?**
+> Usually data volume, concurrency or network. Production has millions of rows, so a missing index or a bad plan only shows up there. Many users contend for locks and connection pools. And chatty code — an N+1 of 300 queries — costs 300 ms locally but seconds when each round trip is 25 ms. I'd compare the trace in production with local, not guess.
+
+**Q6. What should you log, and what should you never log?**
+> Structured events with a trace ID, tenant and user, the operation and its outcome, and enough context to reconstruct what happened — like the Splunk events we used on PlaySweeps to retrace a player's steps. Never passwords, tokens, full card numbers or unnecessary personal data, and not entire request bodies by default. Levels matter: errors should be actionable, not noise.
+
+**Q7. What do you alert on?**
+> User-facing symptoms tied to an SLO: error rate, p99 latency and business signals like orders failing to confirm, plus a few saturation signals that predict trouble, like thread pool queue length, DB connection pool usage, queue age and a non-empty dead-letter queue. Every alert has a runbook. I avoid paging on things nobody needs to act on, because alert fatigue makes people ignore the real ones.
+
+### C9.9 Tự kiểm tra
+1. Tính trung bình, p50, p99 cho 99 request 100 ms + 1 request 8 s.
+2. Đọc ra 6 bước điều tra không nhìn tài liệu.
+3. Trace có "khoảng trống không span con" gợi ý gì? Công cụ xác nhận?
+4. Bảng 4 nguyên nhân DB: dấu hiệu và công cụ xác nhận của từng cái.
+5. Vì sao `DELETE` một đơn hàng mất 8 s? Cách sửa?
+6. N+1 300 query: tính thời gian local vs khác region.
+7. SLI, SLO, SLA, error budget: mỗi cái một câu.
 
 ---
 
-## C10. CI/CD, deploy an toàn, build .NET nhanh hơn ⏳
+## C10. CI/CD, release an toàn và tăng tốc build .NET
 
-> ⏳ **Chưa viết lại sâu.** Dưới đây là nội dung bản cũ (số tham chiếu section bên trong là số bản cũ, xem bảng đối chiếu ở 0.2). Claude sẽ viết lại trước khi Hiệp học tới.
-
-SA tự khai **CI/CD** ở vai trò hiện tại. Kinh nghiệm thật của Hiệp: làm việc **trong** pipeline do DevOps sở hữu; từng **sửa config Jenkins/Helm values**; Joblogic dùng Azure DevOps (PR, nhánh uat) + Sonar. **Không** nhận đã dựng pipeline. (Nếu Hiệp từng tự viết YAML pipeline nào, bổ sung vào đây.)
+**Vì sao cần.** SA ghi CI/CD trong vai trò hiện tại. Agapi hỏi "làm sao build .NET nhanh hơn" và Hiệp chưa trả lời có hệ thống. **Ranh giới trung thực**: Hiệp làm việc **trong** pipeline do DevOps sở hữu, từng **sửa config Jenkins/Helm values**; Joblogic dùng Azure DevOps (PR, nhánh uat) + Sonar. **Không** nhận đã dựng pipeline. Bù lại: PlaySweeps backend có **khoảng 150 project**, đủ để hiểu vì sao build chậm và cần gì để nhanh.
 
 ### C10.1 Khái niệm
-- **CI** (Continuous Integration): merge thường xuyên vào nhánh chính, mỗi lần build + test tự động.
-- **Continuous Delivery**: luôn ở trạng thái deploy được, bước lên prod bấm tay. **Continuous Deployment**: tự động lên prod khi pass.
-- **Artifact**: build **một lần**, promote cùng artifact qua môi trường (dev → staging → prod), không build lại.
-- **Environment config** tách khỏi artifact (12-factor): biến môi trường, Secrets Manager/Parameter Store.
+- **CI**: merge nhỏ, thường xuyên vào nhánh chính; mỗi lần build + test tự động. Mục tiêu: phát hiện lỗi tích hợp trong vài phút.
+- **Continuous Delivery**: main luôn deploy được, lên prod bằng một nút bấm. **Continuous Deployment**: pass là tự lên prod.
+- **Build once, promote**: build **một** artifact (Docker image tag theo **commit SHA**) và đưa **chính nó** qua dev → staging → prod. Build lại mỗi môi trường → thứ đã test không phải thứ đang chạy (khác version package, khác SDK).
+- **Config tách khỏi artifact** (12-factor): biến môi trường, Key Vault/Secrets Manager/Parameter Store; image không chứa secret.
 
-### C10.2 Pipeline chuẩn cho .NET trên AWS
-1. **PR build**: `dotnet restore` → `dotnet build -c Release` → `dotnet test` (unit + integration với Testcontainers) → `dotnet format --verify-no-changes`, analyzer (warning as error), scan dependency (`dotnet list package --vulnerable`), SonarQube/SAST; **bắt buộc pass mới merge** (branch protection, required review).
-2. **Main build**: build Docker image (multi-stage, image runtime nhỏ), tag theo **commit SHA**, đẩy lên **ECR**; tạo migration bundle (`dotnet ef migrations bundle`) hoặc script idempotent.
-3. **Deploy dev/staging** tự động: chạy migration (expand) → deploy app (ECS Fargate/Elastic Beanstalk/App Runner) → smoke test.
-4. **Deploy prod** (duyệt tay hoặc tự động): migration → rolling hoặc **blue/green** (ECS + CodeDeploy) có health check → theo dõi error rate/latency (CloudWatch alarm) → tự rollback nếu alarm.
-5. **Sau deploy**: smoke test, dashboard, thông báo Slack.
-- Công cụ: GitHub Actions, AWS CodePipeline/CodeBuild/CodeDeploy, Azure DevOps, Jenkins, GitLab CI — nguyên lý như nhau. IaC: Terraform, AWS CDK, CloudFormation.
+### C10.2 Pipeline chuẩn cho .NET
+1. **PR**: restore → build Release → unit test → integration test (Testcontainers, B8) → `dotnet format --verify-no-changes`, analyzer `TreatWarningsAsErrors`, `dotnet list package --vulnerable`, SAST/Sonar, secret scanning. **Branch protection**: pass + review mới merge.
+2. **Main**: build Docker image multi-stage, tag SHA, push registry (ECR/ACR); tạo **migration bundle** (`dotnet ef migrations bundle`) hoặc script idempotent (`dotnet ef migrations script --idempotent`).
+3. **Staging tự động**: migration (bước **expand**) → deploy → smoke test.
+4. **Prod**: duyệt (hoặc tự động) → migration → rolling/blue-green có health check → theo dõi error rate, p99 → **tự rollback** khi alarm.
+5. Sau đó: dashboard, thông báo, gắn release vào trace/log (version tag) để so trước/sau.
 
-Ví dụ GitHub Actions rút gọn (để hiểu cấu trúc, không nói là đã từng viết):
-```yaml
-on:
-  pull_request:
-  push: { branches: [main] }
-jobs:
-  build-test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
-        with: { dotnet-version: '8.0.x' }
-      - run: dotnet restore
-      - run: dotnet build -c Release --no-restore
-      - run: dotnet test -c Release --no-build
-  deploy:
-    if: github.ref == 'refs/heads/main'
-    needs: build-test
-    runs-on: ubuntu-latest
-    environment: staging
-    steps:
-      - run: echo "build image, push to ECR, run migration bundle, update ECS service"
+**Vì sao migration không chạy lúc app khởi động** (`Database.Migrate()` trong `Program.cs`): 5 instance khởi động cùng lúc cùng chạy migration (race, khoá schema), app cần quyền DDL (vi phạm least privilege), migration dài làm health check fail → rollout kẹt. Chạy **một bước riêng** trong pipeline.
+
+### C10.3 Phát hành an toàn và rollback
+| Chiến lược | Cách làm | Rollback | Lưu ý |
+|---|---|---|---|
+| **Rolling** | Thay dần từng instance | Rolling ngược | Bản cũ và mới chạy song song → API, message, DB phải tương thích hai chiều |
+| **Blue/green** | Dựng bản mới đầy đủ, chuyển traffic một lần | Chuyển lại (giây) | Tốn gấp đôi tài nguyên lúc chuyển |
+| **Canary** | 5% → 25% → 100%, đo từng bước | Dừng và trả 0% | Cần metric tách theo version |
+| **Feature flag** | Deploy code tắt, bật theo tenant/user | Tắt flag | **Tách deploy khỏi release**; dọn flag cũ |
+
+- **Expand/contract** (B3): thêm cột nullable/bảng mới (expand) → code mới ghi cả hai → backfill → code chỉ dùng cái mới → bản sau mới **drop** (contract). Nhờ vậy **rollback app không cần rollback DB**. Không drop/đổi tên cột trong cùng release với code dùng nó.
+- **Hotfix**: vẫn đi qua pipeline (có thể rút ngắn bước chạy chậm), không SSH sửa tay trên server.
+- **DORA metrics**: deployment frequency, lead time for changes, change failure rate, time to restore.
+
+### C10.4 Vì sao build .NET chậm — hiểu trước khi tối ưu
+Một lần `dotnet build` gồm: **restore** (giải quyết đồ thị package, tải `.nupkg` về `~/.nuget/packages`) → **evaluate** project MSBuild → **compile** từng project theo thứ tự phụ thuộc (Roslyn), chạy **source generator/analyzer** → copy output (`bin/`), sinh file. Với 150 project, chậm thường do:
+- **Restore lại từ đầu** trên agent sạch mỗi lần (tải hàng trăm MB package).
+- **Đồ thị phụ thuộc sâu và hẹp**: A → B → C → … build tuần tự, không song song được.
+- **Đổi một project ở gốc** (Common/Shared) → tất cả project phụ thuộc build lại.
+- Analyzer/source generator nặng, `TreatWarningsAsErrors` với nhiều rule chạy trên mọi project.
+- **Build lại khi test**: `dotnet test` mặc định build lại nếu không có `--no-build`.
+- Docker: `COPY . .` trước `restore` → mỗi lần sửa một dòng code là **mất cache layer restore**.
+- Copy output: mỗi project copy toàn bộ dependency vào `bin` của nó → I/O lớn.
+
+### C10.5 Cách làm nhanh (theo thứ tự tác động)
+**Pipeline:**
+- **Cache NuGet** theo hash của `packages.lock.json`/`Directory.Packages.props` (GitHub Actions `actions/cache` trên `~/.nuget/packages`; Azure DevOps `Cache@2`). Bật `RestorePackagesWithLockFile` để restore xác định và key cache ổn định.
+- **Restore một lần, sau đó `--no-restore`; build một lần, test với `--no-build`**:
+```bash
+dotnet restore MySolution.sln --locked-mode
+dotnet build MySolution.sln -c Release --no-restore -m
+dotnet test  MySolution.sln -c Release --no-build --logger trx
 ```
+- `-m` (`-maxcpucount`) để MSBuild build song song các project độc lập (mặc định trong `dotnet build` đã bật; nói được ý nghĩa). Agent nhiều core giúp khi đồ thị **rộng**.
+- **Chỉ build/test phần bị ảnh hưởng** (affected): trong monorepo lọc theo đường dẫn thay đổi (`paths` filter), hoặc solution filter (`.slnf`) cho từng nhóm service.
+- **Chạy song song các job**: unit test, integration test, lint tách job; integration test chia shard.
+- Chỉ chạy integration test nặng ở main/nightly nếu PR quá chậm (cân nhắc, nói rõ đánh đổi).
 
-### C10.3 Chiến lược phát hành & rollback
-- **Rolling**: thay dần instance; bản cũ và mới chạy song song → API + DB phải tương thích ngược.
-- **Blue/green**: dựng môi trường mới, chuyển traffic một lần, rollback = chuyển lại.
-- **Canary**: chuyển % nhỏ traffic, đo, tăng dần.
-- **Feature flag**: deploy code tắt, bật dần theo tenant/user; **tách deploy khỏi release**; rollback = tắt flag. Dọn flag cũ.
-- **Rollback có migration**: nhờ **expand/contract**, rollback app không cần rollback DB (schema mới vẫn tương thích bản cũ). Không viết migration phá huỷ (drop cột) cùng release dùng nó.
-- **Hotfix**: nhánh hotfix từ tag prod hoặc fix trên main + cherry-pick; vẫn đi qua pipeline (nhanh hơn, không bỏ test).
-- **Zero-downtime**: graceful shutdown (xử lý xong request đang chạy, `stoppingToken`), readiness probe, connection draining ở load balancer.
+**Docker:**
+```dockerfile
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+WORKDIR /src
+COPY *.sln Directory.Packages.props Directory.Build.props ./
+COPY src/Api/Api.csproj src/Api/
+COPY src/Domain/Domain.csproj src/Domain/
+RUN dotnet restore src/Api/Api.csproj          # layer này chỉ chạy lại khi csproj/props đổi
+COPY . .
+RUN dotnet publish src/Api/Api.csproj -c Release -o /app --no-restore
 
-### C10.4 Chất lượng trong pipeline
-- Unit + integration test, coverage gate hợp lý, static analysis, secret scanning, dependency scanning, container image scanning (ECR scan).
-- Code review bắt buộc, branch protection.
-- DORA metrics: deployment frequency, lead time for changes, change failure rate, time to restore.
+FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS runtime
+WORKDIR /app
+COPY --from=build /app .
+ENTRYPOINT ["dotnet", "Api.dll"]
+```
+- Copy file project trước, restore, rồi mới copy code → **cache layer restore**. `.dockerignore` loại `bin/`, `obj/`, `.git`. BuildKit cache mount (`RUN --mount=type=cache,target=/root/.nuget/packages`).
 
-### C10.5 Câu trả lời trung thực mẫu
-> I haven't owned a pipeline end to end; in my previous teams DevOps owned it and I worked inside it: I've edited Jenkins and Helm configuration for my services, and I own the parts a developer should — tests that run in the pipeline, backward-compatible migrations, feature flags, and checking metrics after a release. If I set one up for the Ops Hub, I'd build one image per commit, promote the same image through environments, run migrations as a separate expand/contract step, and keep rollback to a single action.
+**Cấu trúc solution:**
+- **Central Package Management** (`Directory.Packages.props`): một chỗ khai version → không lệch version giữa 150 project, restore nhẹ và dễ cache hơn.
+- `Directory.Build.props` cho setting chung (analyzer, `LangVersion`, `Nullable`).
+- Giảm độ sâu đồ thị: tách "Shared" khổng lồ thành gói nhỏ, ít project ở gốc; project gốc ổn định thì đổi ít → ít rebuild dây chuyền.
+- Gộp project quá vụn (150 project có thể là quá nhiều đơn vị biên dịch nhỏ; mỗi project có chi phí cố định).
+- `ProduceReferenceAssembly` (mặc định bật từ .NET 5): project phụ thuộc chỉ build lại khi **public API** đổi, không phải khi đổi code bên trong.
+- Analyzer nặng: chạy đầy đủ ở CI, tắt bớt ở build cục bộ (`RunAnalyzersDuringBuild` theo cấu hình), hoặc tách thành job riêng.
 
-### C10.6 Câu hỏi luyện
-1. Walk me through the pipeline from a merged PR to production.
-2. Continuous delivery vs continuous deployment?
-3. Why build once and promote the same artifact?
-4. How do you run database migrations in a pipeline? Why not at app startup?
-5. A release breaks production and included a migration. How do you roll back?
-6. Blue/green vs rolling vs canary?
-7. What's a feature flag? How does it help release safely?
-8. What checks should block a merge?
-9. How do you manage secrets in CI/CD?
-10. How do you ship a hotfix quickly without skipping safety?
-11. What have you done with CI/CD yourself? (trả lời trung thực 20.5)
-12. How do you achieve zero-downtime deployment?
-13. What's infrastructure as code? Have you used it?
+**Trên máy dev:**
+- **Incremental build**: không `clean` mỗi lần; build project đang sửa thay vì cả solution.
+- `dotnet watch` + Hot Reload; Dev Drive (Windows) cho thư mục mã nguồn và NuGet cache; loại thư mục repo khỏi antivirus scan.
+- Solution filter để Visual Studio/Rider chỉ load nhóm project đang làm.
+
+**Đo trước khi sửa**: `dotnet build -bl` tạo **binary log** → mở bằng **MSBuild Structured Log Viewer** xem target/project nào tốn thời gian, project nào build lại không cần thiết. Câu Senior: "I'd profile the build with a binary log before changing anything."
+
+### C10.6 Bảo mật trong pipeline
+- Secret lấy từ secret store của CI hoặc **OIDC** tới cloud (GitHub Actions → AWS/Azure không cần lưu access key lâu dài); không in secret ra log.
+- Quyền tối thiểu cho service principal deploy; prod cần approval.
+- Scan dependency, image (ECR/Defender), ký image nếu cần; pin version action/base image.
+- Liên hệ C2: pipeline là đường **insider** có thể đưa code vào prod → bắt buộc review, không push thẳng main, audit log.
+
+### C10.7 Câu hỏi phỏng vấn & trả lời mẫu
+
+**Q1. What have you done with CI/CD yourself?**
+> I haven't owned a pipeline end to end: DevOps owned it, and I worked inside it. I've edited Jenkins and Helm values for my services, and I own what a developer should — tests that run in the pipeline, backward-compatible migrations, feature flags, and watching metrics after a release. If I set one up for the Ops Hub I'd build one image per commit, promote that same image through environments, run migrations as a separate expand/contract step, and make rollback a single action.
+
+**Q2. Walk me through the pipeline from a merged PR to production.**
+> The PR build restores, builds, runs unit and integration tests, formatting, analyzers and a vulnerability scan, and branch protection requires it plus a review. On merge we build a Docker image tagged with the commit SHA and push it, along with a migration bundle. Staging gets the expand migration and the new image automatically, then smoke tests. Production uses the same image after approval, rolling or blue/green with health checks, and an alarm on error rate or p99 triggers rollback.
+
+**Q3. Our .NET build takes 25 minutes. How would you speed it up?**
+> First measure: a binary log with `-bl` in the Structured Log Viewer shows which projects and targets take the time. Common wins are caching NuGet packages keyed on the lock file, restoring once and then building with `--no-restore` and testing with `--no-build`, and ordering the Dockerfile so restore is a cached layer that only reruns when project files change. Structurally, Central Package Management, a shallower dependency graph so a change in a shared project doesn't rebuild everything, building only affected services, and splitting tests into parallel jobs. Locally, incremental builds, solution filters and `dotnet watch`.
+
+**Q4. Why not run EF migrations at application startup?**
+> With several instances they race to apply the same migration, the app needs DDL permissions it shouldn't have, and a long migration makes health checks fail so the rollout stalls. I run them as a single pipeline step before the deploy, using a migration bundle or an idempotent script, and keep them backward compatible so the old version still works during the rollout.
+
+**Q5. A release with a migration breaks production. How do you roll back?**
+> Because migrations are expand-only in the same release as the code, the old version still works with the new schema, so I roll back the application — redeploy the previous image or switch blue/green back — without touching the database. Destructive changes like dropping a column ship in a later release once nothing uses it. If the problem is in a feature behind a flag, turning the flag off is faster still.
+
+**Q6. Blue/green vs rolling vs canary?**
+> Rolling replaces instances gradually, so old and new run side by side and must be compatible. Blue/green stands up the new version fully and switches traffic at once, giving instant rollback at the cost of double capacity during the switch. Canary sends a small percentage to the new version, compares its metrics with the old one, and increases gradually. Feature flags go further by separating deploy from release.
+
+**Q7. Why build once and promote the same artifact?**
+> So that what we tested is exactly what runs in production. Rebuilding per environment can pick up a different package version or SDK and produce a different binary. Environment differences live in configuration and secrets, not in the image.
+
+### C10.8 Tự kiểm tra
+1. Continuous delivery vs continuous deployment.
+2. Ba lý do không chạy migration lúc khởi động app.
+3. Viết lại ba lệnh restore/build/test nhanh, giải thích từng cờ.
+4. Vì sao Dockerfile copy csproj trước rồi mới copy code?
+5. `-bl` là gì, mở bằng gì, tìm cái gì?
+6. Đổi một dòng trong project Common làm build lại 100 project: vì sao, giảm bằng cách nào?
+7. Rollback một release có migration mà không rollback DB: điều kiện là gì?
 
 ---
 
