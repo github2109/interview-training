@@ -26,10 +26,10 @@ Ký hiệu trạng thái: ⬜ chưa học · 📖 đang học · ✅ xong (đã 
 | A5 | SQL Server bên trong: page, B-tree, index, execution plan, JOIN, statistics | SA | Cao 70% | ⬜ |
 | A6 | Transaction, isolation, lock, deadlock, XACT_ABORT, update balance | SA | Cao 70% | ⬜ |
 | **B** | **XÂY ỨNG DỤNG .NET** | | | |
-| B1 | ASP.NET Core: pipeline, DI, middleware, filter, cấu hình | SA | Cao 65% | ⏳ |
-| B2 | ASP.NET MVC: model binding, validation, CSRF, over-posting, PRG | SA | Cao 60% | ⏳ |
-| B3 | EF Core và Dapper: tracking, N+1, split query, concurrency, migration | SA | Cao 70% | ⏳ |
-| B4 | REST API design | SA | Rất cao 85% | ⏳ |
+| B1 | ASP.NET Core: pipeline, DI, middleware, filter, cấu hình | SA | Cao 65% | ⬜ |
+| B2 | ASP.NET MVC: model binding, validation, CSRF, over-posting, PRG | SA | Cao 60% | ⬜ |
+| B3 | EF Core và Dapper: tracking, N+1, split query, concurrency, migration | SA | Cao 70% | ⬜ |
+| B4 | REST API design | SA | Rất cao 85% | ⬜ |
 | B5 | OOP, SOLID, layering, kiến trúc tổng thể | SA | Rất cao 90% | ⏳ |
 | B6 | Design patterns | SA | Cao 80% | ⏳ |
 | B7 | Clean code và code review | SA | Rất cao 80% | ⏳ |
@@ -964,203 +964,535 @@ WHERE r.blocking_session_id <> 0;
 
 ---
 
-## B1. ASP.NET Core: pipeline, DI, middleware, filter, cấu hình ⏳
+## B1. ASP.NET Core: pipeline, DI, middleware, filter, cấu hình, background service
 
-> ⏳ **Chưa viết lại sâu.** Dưới đây là nội dung bản cũ (số tham chiếu section bên trong là số bản cũ, xem bảng đối chiếu ở 0.2). Claude sẽ viết lại trước khi Hiệp học tới.
+**Vì sao cần.** SA hỏi kiến trúc sẽ đi qua đây: "request đi qua những gì?", "đặt audit/permission/correlation id ở đâu?", "Singleton/Scoped/Transient?", "captive dependency?", "chạy việc nền thế nào?". Đã học ở Buổi 1–2 (`notes/01`, `notes/02`); ở đây sắp lại thành mạch có cơ chế và câu đào sâu.
 
-### B1.1 DI
-- **Lifetime**: Singleton (1 cho cả app — cache, config, HttpClient factory), Scoped (1 mỗi request — DbContext, unit of work), Transient (mỗi lần resolve — service nhẹ, không state).
-- Scope tạo đầu request, **Dispose** cuối request.
-- **Captive dependency**: Singleton giữ Scoped (DbContext) → context sống cả process: không thread-safe ("second operation"), change tracker phình, dữ liệu cũ. Sửa: đổi lifetime hoặc `IServiceScopeFactory`/`IDbContextFactory`. Phòng: `ValidateScopes` + `ValidateOnBuild`.
-- **Quy tắc**: không inject service sống ngắn hơn vào service sống dài hơn.
-- **Constructor injection vs service locator** (`IServiceProvider.GetService` khắp nơi): service locator giấu phụ thuộc, khó test → chỉ dùng ở chỗ hạ tầng (factory, middleware).
-- `BackgroundService` là Singleton → tạo scope mỗi lần xử lý để lấy DbContext.
-- Keyed services (.NET 8): `AddKeyedScoped<IRtoProvider, ProviderA>("A")`.
-- PlaySweeps dùng **Autofac**; built-in DI đủ cho đa số.
+### B1.1 Từ socket tới controller
+1. **Kestrel** (web server có sẵn của ASP.NET Core) nhận kết nối TCP, parse HTTP, tạo **`HttpContext`** (Request, Response, User, RequestServices, Items, RequestAborted).
+2. Đằng trước thường có **reverse proxy / load balancer** (Nginx, IIS, ALB, Azure Front Door) lo TLS, nén, giới hạn kích thước → app cần `UseForwardedHeaders` để biết IP/scheme thật.
+3. `HttpContext` đi qua **pipeline middleware** (các lớp lồng nhau như búp bê Nga): mỗi middleware làm việc trước, gọi `await next(context)`, rồi làm việc sau khi response quay về. Không gọi `next` = **short-circuit** (ví dụ static file trả luôn, rate limiter trả 429).
+4. **Routing** chọn endpoint (controller action / minimal API) và gắn **metadata** (`[Authorize]`, `[AllowAnonymous]`, policy).
+5. Endpoint chạy: MVC thì thêm **filter pipeline**, model binding, validation, action, result.
+6. Response đi ngược qua các middleware.
 
-### B1.2 Pipeline, middleware, filter
-- Kestrel → middleware lồng nhau → endpoint; response đi ngược. Không gọi `next` = short-circuit.
-- Thứ tự chuẩn: ExceptionHandler → HSTS/HttpsRedirection → Static files → Routing → CORS → **Authentication → Authorization** → RateLimiter → endpoints. AuthZ trước AuthN → "token đúng mà vẫn 401".
-- **"Middleware lo HTTP, Filter lo Action"**: middleware cho mọi request (exception, correlation id, auth, rate limit); filter chỉ cho action MVC, thấy action + tham số đã bind (validation, audit, permission).
-- Filter order: Authorization → Resource → (model binding) → Action → Exception → Result. Endpoint filter cho Minimal API.
-- Middleware class là singleton → inject Scoped qua tham số `InvokeAsync`.
+```csharp
+var app = builder.Build();
+app.UseExceptionHandler();          // ngoài cùng: bắt lỗi của mọi lớp bên trong
+app.UseHsts(); app.UseHttpsRedirection();
+app.UseStaticFiles();
+app.UseRouting();                    // chọn endpoint, lộ metadata cho các lớp sau
+app.UseCors();
+app.UseAuthentication();             // đọc cookie/JWT → HttpContext.User
+app.UseAuthorization();              // kiểm tra policy của endpoint
+app.UseRateLimiter();
+app.MapControllers();
+```
+- **Thứ tự quan trọng**: `UseAuthorization` trước `UseAuthentication` → `User` vẫn ẩn danh → "token đúng mà vẫn 401". Exception handler đặt sau một middleware thì **không bắt** được lỗi của middleware đó.
 
-### B1.3 Exception handling & logging
-- Global: `UseExceptionHandler` + `IExceptionHandler` (.NET 8) + `AddProblemDetails`; 500 không lộ chi tiết; kèm `traceId`.
-- "Exception cho chuyện bất ngờ, Result cho chuyện bình thường".
-- Log 4xx là Warning, 5xx là Error + alert. Structured logging (Serilog/`ILogger` với template `{OrderId}`), correlation id.
+### B1.2 Middleware vs filter — đặt logic ở đâu
+**"Middleware lo HTTP, filter lo action."**
+| | Middleware | Filter (MVC) |
+|---|---|---|
+| Chạy cho | **Mọi request** (kể cả 404, 401, file tĩnh) | Chỉ request vào **action MVC** |
+| Thấy gì | `HttpContext` thô | Action nào, **tham số đã bind**, `ModelState`, kết quả action |
+| Hợp cho | Exception toàn cục, correlation id/tracing, authN, rate limit, request logging, security header | Validation, permission theo action (`[Permission(PROJECT_DOWNLOAD)]` ở Joblogic), audit theo action, xác thực hash callback, transaction quanh action |
 
-### B1.4 Cấu hình & khác
-- `appsettings.json` → `appsettings.{Environment}.json` → biến môi trường → secret store (User Secrets local; AWS Secrets Manager/Parameter Store prod). **Options pattern** `IOptions/IOptionsSnapshot/IOptionsMonitor`.
-- Health checks: `/health/live` (process sống) vs `/health/ready` (DB, phụ thuộc sẵn sàng).
-- Minimal API vs Controller: minimal gọn cho API nhỏ; controller cho app lớn có filter, convention.
-- `IHostedService`/`BackgroundService` cho việc nền; graceful shutdown qua `stoppingToken`.
-- Rate limiting built-in (.NET 7+): fixed window, sliding, token bucket, concurrency.
-- Output caching / response caching.
+Thứ tự filter: **Authorization → Resource → (model binding) → Action → (action chạy) → Exception → Result**.
+- **Resource filter** chạy **trước model binding** → hợp để đọc **raw body** (xác thực chữ ký HMAC của webhook Pragmatic: body là stream chỉ đọc một lần → `Request.EnableBuffering()`). Action filter chỉ thấy object đã bind, serialize lại có thể khác byte gốc → hash sai.
+- Minimal API dùng **endpoint filter** (`AddEndpointFilter`).
+- Middleware viết dạng class được tạo **một lần (singleton)** → service Scoped phải inject qua **tham số của `InvokeAsync`**, không qua constructor.
 
-### B1.5 Câu hỏi luyện
-1. Explain Singleton, Scoped, Transient with real examples.
-2. What's a captive dependency? How do you detect and fix it?
-3. Explain the request pipeline. Why does middleware order matter?
-4. Middleware vs filter — where would you put audit logging / permission check / correlation ID?
-5. How do you handle exceptions globally in a Web API?
-6. How do you manage configuration and secrets across environments?
-7. How do you run background work in ASP.NET Core?
-8. Liveness vs readiness health check?
-9. Minimal API or controllers?
+### B1.3 Dependency Injection: lifetime và captive dependency
+| Lifetime | Tạo khi | Ví dụ đúng |
+|---|---|---|
+| **Singleton** | Một lần cho cả app | Cấu hình, `IMemoryCache`, `IHttpClientFactory`, client Redis (`ConnectionMultiplexer`), `TimeProvider` |
+| **Scoped** | Một lần **mỗi request** (mỗi `IServiceScope`) | `DbContext`, unit of work, service cần biết user/tenant hiện tại |
+| **Transient** | Mỗi lần resolve | Service nhẹ, không state |
 
----
+- Scope tạo đầu request, **Dispose cuối request** (container dispose luôn các Scoped/Transient `IDisposable` nó tạo).
+- **Captive dependency**: service sống dài giữ service sống ngắn. Ví dụ Singleton `QuoteCache` inject `AppDbContext` (Scoped) → DbContext sống suốt process:
+  - nhiều request dùng chung → **"A second operation was started on this context"** (DbContext không thread-safe);
+  - **change tracker phình** (mọi entity đã load bị giữ) → memory leak, `DetectChanges` chậm dần;
+  - dữ liệu cũ (entity đã track không được làm mới).
+  Sửa: đổi lifetime cho đúng, hoặc Singleton dùng `IDbContextFactory<T>` / `IServiceScopeFactory` tạo context ngắn hạn khi cần. Phòng ngừa: bật `ValidateScopes` + `ValidateOnBuild` ở **mọi** môi trường (mặc định chỉ bật ở Development).
+- Quy tắc một câu: **không inject service sống ngắn hơn vào service sống dài hơn.**
+- **Constructor injection** (phụ thuộc lộ rõ, dễ test) vs **service locator** (`IServiceProvider.GetService` rải khắp nơi: giấu phụ thuộc). Service locator chỉ ở chỗ hạ tầng (factory, middleware, background job tạo scope).
+- .NET 8: **keyed services** `AddKeyedScoped<IRtoProvider, AcmeRto>("acme")` + `[FromKeyedServices("acme")]`. PlaySweeps dùng **Autofac** (module, decorator, assembly scanning); built-in DI đủ cho đa số trường hợp.
 
-## B2. ASP.NET MVC ⏳
+### B1.4 Xử lý lỗi toàn cục, ProblemDetails, logging
+- `.NET 8`: `builder.Services.AddProblemDetails()` + `AddExceptionHandler<GlobalExceptionHandler>()` + `app.UseExceptionHandler()`. `IExceptionHandler.TryHandleAsync` trả `true` nếu đã xử lý, `false` để handler sau thử.
+- 500: trả ProblemDetails **không lộ** `ex.Message`/stack trace, kèm `traceId` để support tra log.
+- **"Exception cho chuyện bất ngờ, Result cho chuyện bình thường"**: thiếu số dư, đơn đã huỷ là chuyện bình thường → Result/OneOf → map ra 409/422; DB sập là bất ngờ → exception → 500/503.
+- Log: 4xx là **Warning** (lỗi phía client), 5xx là **Error** + alert. Structured logging: `_logger.LogInformation("Quote {QuoteId} finalized by {UserId}", id, userId)` (template, không nối chuỗi) → tìm được theo field trong App Insights/CloudWatch/Loki. Correlation id / trace id ở mọi log.
 
-> ⏳ **Chưa viết lại sâu.** Dưới đây là nội dung bản cũ (số tham chiếu section bên trong là số bản cũ, xem bảng đối chiếu ở 0.2). Claude sẽ viết lại trước khi Hiệp học tới.
+### B1.5 Cấu hình và secret
+- Nguồn cấu hình theo thứ tự đè: `appsettings.json` → `appsettings.{Environment}.json` → **User Secrets** (chỉ Development) → **biến môi trường** → command line → nguồn thêm (**AWS Secrets Manager / Parameter Store, Azure Key Vault, App Configuration**).
+- **Options pattern**: `services.Configure<TaxOptions>(config.GetSection("Tax"))` + validate lúc khởi động (`ValidateDataAnnotations().ValidateOnStart()`).
+  - `IOptions<T>`: đọc một lần (Singleton).
+  - `IOptionsSnapshot<T>`: đọc lại **mỗi request** (Scoped).
+  - `IOptionsMonitor<T>`: Singleton nhưng nhận **thay đổi nóng** + callback `OnChange`.
+- Secret không bao giờ nằm trong git; app lấy credential cloud qua **IAM role / Managed Identity**, không access key.
 
-JD ghi "ASP.NET MVC và/hoặc Web API"; codebase Ops Hub có thể là MVC. Hiệp có kinh nghiệm thật ở Joblogic (20 view `.cshtml`, 27 controller, Razor + jQuery + Vue nhúng).
+### B1.6 Việc nền: BackgroundService, Channel, graceful shutdown
+- `BackgroundService` (implement `IHostedService`) được đăng ký như **Singleton** → mỗi lần xử lý phải **tạo scope** để lấy DbContext:
+```csharp
+public class PdfWorker(Channel<Guid> queue, IServiceScopeFactory scopes, ILogger<PdfWorker> log) : BackgroundService
+{
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        await foreach (var quoteId in queue.Reader.ReadAllAsync(stoppingToken))
+        {
+            using var scope = scopes.CreateScope();
+            var svc = scope.ServiceProvider.GetRequiredService<QuotePdfService>();
+            try { await svc.GenerateAsync(quoteId, stoppingToken); }
+            catch (Exception ex) { log.LogError(ex, "PDF failed for {QuoteId}", quoteId); }
+        }
+    }
+}
+```
+- `Channel<T>` là hàng đợi **trong RAM**: app restart/deploy → **mất việc** đang chờ. Việc không được mất (gửi hợp đồng, cộng tiền) → **queue bền** (SQS/Service Bus) hoặc **outbox** trong DB (C5), hoặc Hangfire (lưu job trong DB).
+- **Graceful shutdown**: khi deploy, host gửi `stoppingToken`, mặc định chờ **30 s** (`HostOptions.ShutdownTimeout`) để xử lý xong; load balancer cần **connection draining** để ngừng gửi request mới tới instance đang tắt.
+- Nhiều instance → mỗi instance có một `BackgroundService` → job định kỳ chạy **N lần** → cần leader election / distributed lock / scheduler trung tâm, và job phải **idempotent**.
 
-### B2.1 Kiến thức
-| Chủ đề | Cần nói được |
-|---|---|
-| MVC flow | Routing → controller action → model binding → validation → action chạy → `ViewResult` → Razor render HTML → response |
-| Routing | Conventional (`{controller}/{action}/{id?}`) vs attribute (`[Route("quotes/{id}")]`); Areas cho module lớn |
-| Model binding | Nguồn: route, query, form, body (`[FromBody]` chỉ một lần), header; bind vào **ViewModel**, không bind thẳng entity |
-| **Over-posting / mass assignment** | Form gửi thêm `IsApproved=true` hoặc `Price=1` → bind vào entity → bị sửa. Chặn: ViewModel chỉ có field cho phép, map tay; tránh `[Bind]` dài, tránh `TryUpdateModelAsync` không giới hạn |
-| Validation | DataAnnotations (`[Required]`, `[Range]`) / FluentValidation; `ModelState.IsValid`; **luôn validate server** (client-side chỉ là UX); trả lại view với lỗi |
-| **Anti-forgery (CSRF)** | Cookie auth → trình duyệt tự gửi cookie → site lạ có thể POST thay user. `<form>` tag helper tự thêm token; `[ValidateAntiForgeryToken]` hoặc `AutoValidateAntiforgeryToken` toàn cục. API bearer token thì không cần; AJAX gửi token qua header |
-| **PRG** (Post-Redirect-Get) | POST xong `RedirectToAction` → F5 không submit lại (chống double submit order); `TempData` để hiện thông báo |
-| Filters | Authorization → Resource → Action → Exception → Result; permission (Joblogic `[Permission(PROJECT_DOWNLOAD)]`), audit, transaction |
-| ViewModel vs ViewBag/ViewData | ViewModel có kiểu (nên dùng); ViewBag dynamic, dễ lỗi |
-| Layout, partial view, **view component**, **tag helper** | Tái sử dụng UI; view component có logic + DI riêng (vd. widget balance); tag helper thay HTML helper |
-| Razor | `@model`, `@if`, `@foreach`, `asp-for`, `asp-validation-for`; **tự encode** `@value` |
-| **XSS** | Nguy hiểm khi `Html.Raw` (rich text T&C) → sanitize (HtmlSanitizer); CSP header |
-| Optimistic concurrency trong MVC | Gửi `RowVersion` qua hidden field, gán `OriginalValue` khi lưu → `DbUpdateConcurrencyException` → báo người dùng |
-| Auth | Cookie authentication, `[Authorize(Roles/Policy)]`, policy-based authorization, resource-based (`IAuthorizationService`) |
-| MVC vs Web API | MVC trả HTML (server render), API trả JSON; ASP.NET Core gộp: `Controller` (có view) vs `ControllerBase` + `[ApiController]` (tự validate → 400, binding suy luận) |
-| Razor Pages | Mô hình page-based (PageModel), hợp form CRUD đơn giản |
-| ASP.NET MVC 5 (.NET Framework) vs ASP.NET Core MVC | Cũ: `System.Web`, IIS, Global.asax, không DI built-in; mới: cross-platform, middleware, DI built-in. Codebase partner có thể còn MVC 5 → biết để migrate dần |
-| Bundling, static files | `wwwroot`, cache-busting `asp-append-version` |
+### B1.7 Health check, rate limiting, minimal API
+- **Liveness** (`/health/live`): process còn sống không, **không** kiểm tra DB (DB chết mà liveness fail → orchestrator restart hàng loạt pod vô ích). **Readiness** (`/health/ready`): đã sẵn sàng nhận traffic chưa (DB, cache kết nối được) → load balancer chỉ gửi request khi ready.
+- Rate limiting built-in (.NET 7+): `AddRateLimiter` với **fixed window, sliding window, token bucket, concurrency**; nhưng counter nằm trong RAM **từng instance** → nhiều instance cần Redis hoặc limit ở gateway.
+- **Minimal API vs Controller**: minimal gọn, nhanh, hợp API nhỏ/microservice; controller hợp app lớn có filter, convention, nhiều action. Không phải chọn phe.
 
-### B2.2 Câu mẫu
-> In Joblogic's back-office, pages are Razor views with Vue components embedded for the interactive parts. Controllers stay thin: they bind to a view model, check permissions with an attribute filter, then send a message to the backend service and map the result. I never bind directly to entities, to avoid over-posting, and all POST forms use the anti-forgery token because it's cookie-authenticated.
+### B1.8 Bẫy hay sai
+- Đặt `UseAuthorization` trước `UseAuthentication`, hoặc `UseExceptionHandler` không ở ngoài cùng.
+- Inject Scoped vào constructor của middleware class / Singleton.
+- Nghĩ "Scoped = một instance cho mỗi thread" → sai, là **mỗi scope** (mỗi request).
+- Dùng `Channel` cho việc liên quan tiền rồi nói "không mất".
+- Liveness kiểm tra DB.
+- `IOptions<T>` rồi thắc mắc vì sao đổi cấu hình không có tác dụng.
 
-### B2.3 Câu hỏi luyện
-1. Walk me through what happens when a user submits a form in ASP.NET MVC.
-2. What is over-posting and how do you prevent it?
-3. What is CSRF? Why does MVC need anti-forgery tokens but a bearer-token API doesn't?
-4. What is the Post-Redirect-Get pattern?
-5. Client-side vs server-side validation?
-6. ViewModel vs ViewBag?
-7. Partial view vs view component?
-8. How do you prevent XSS when showing rich-text terms and conditions?
-9. How would you handle two users editing the same order form?
-10. MVC 5 vs ASP.NET Core MVC — how would you migrate an old MVC 5 app?
-11. When would you render with Razor and when with React?
-12. How do you do authorization per action and per resource?
+### B1.9 Câu hỏi phỏng vấn & trả lời mẫu
 
----
+**Q1. Walk me through what happens to a request in ASP.NET Core.**
+> Kestrel accepts the connection and builds an HttpContext. It goes through the middleware pipeline in order — exception handling first, then HTTPS, routing, CORS, authentication, authorization, rate limiting — each one can act before and after calling the next. Routing picks the endpoint and exposes its metadata, so authorization knows the policy. For a controller, the MVC filter pipeline runs: authorization filters, resource filters, model binding and validation, action filters, the action, then result filters, and the response flows back out through the middleware. Order matters: authorization before authentication gives you a 401 with a valid token.
 
-## B3. EF Core và Dapper ⏳
+**Q2. Where would you put audit logging, a permission check and a correlation ID?**
+> Correlation ID and request timing go in middleware, as early as possible, because they apply to every request including 404s and 401s. A permission check per action — like "can download project documents" — fits an authorization filter or a policy attribute, because it needs to know which action is running. Audit of business changes I'd do in the application layer or a SaveChanges interceptor, since it should capture what actually changed, not just which endpoint was hit. Business rules never go in middleware or filters.
 
-> ⏳ **Chưa viết lại sâu.** Dưới đây là nội dung bản cũ (số tham chiếu section bên trong là số bản cũ, xem bảng đối chiếu ở 0.2). Claude sẽ viết lại trước khi Hiệp học tới.
+**Q3. Explain Singleton, Scoped and Transient. What's a captive dependency?**
+> Singleton is one instance for the app — configuration, caches, the HTTP client factory. Scoped is one per request — the DbContext and anything that depends on the current user or tenant. Transient is a new instance every time it's resolved. A captive dependency is a longer-lived service holding a shorter-lived one, for example a singleton cache with a DbContext injected: the context lives for the whole process, gets used by concurrent requests and throws "a second operation was started", and its change tracker grows forever. I fix it with `IDbContextFactory` or a scope factory, and enable `ValidateScopes` and `ValidateOnBuild` in every environment so it fails at startup.
 
-### B3.1 EF Core
-- **DbContext** = unit of work + change tracker + connection; Scoped; không thread-safe.
-- **Tracking vs AsNoTracking**: tracking để sửa (snapshot → DetectChanges → UPDATE đúng cột đổi); `AsNoTracking` cho đọc. **Projection** `Select` vào DTO là tốt nhất cho đọc.
-- **N+1**: lazy loading hoặc query trong vòng lặp → `Include`, projection, batch `Contains`. Phát hiện: đếm số SQL mỗi request (log `Database.Command`, MiniProfiler).
-- `AsSplitQuery` khi Include nhiều collection (tích Descartes).
-- **Optimistic concurrency**: `[Timestamp] byte[] RowVersion` → `DbUpdateConcurrencyException` → 409/412.
-- **Transaction**: `SaveChanges` đã là transaction; tự mở `BeginTransactionAsync` khi nhiều SaveChanges/trộn SQL thô; giữ ngắn, **không gọi HTTP/email trong transaction** (outbox); `EnableRetryOnFailure` → bọc bằng `CreateExecutionStrategy`.
-- `ExecuteUpdate/ExecuteDelete` (EF7+): cập nhật hàng loạt không qua tracker (bỏ qua interceptor/audit).
-- Interceptor: audit, set session context (Joblogic), soft delete.
-- Global query filter: `HasQueryFilter(x => x.TenantId == _tenant.Id && !x.IsDeleted)`.
-- Owned types / value object (`Money`), value converter, `HasPrecision`.
-- Compiled query, `ToQueryString()` để xem SQL.
-- EF Core ≥ 3 throw khi không dịch được LINQ (EF ≤ 2 âm thầm client-eval → kiểm tra khi tiếp quản).
-- EF6 vs EF Core: EF6 (`System.Data.Entity`) chạy được trên .NET 8 nhưng không phát triển thêm; EF Core nhanh hơn, có tính năng mới. Joblogic còn EF6.
-- **Dapper**: micro-ORM, viết SQL, map nhanh; bẫy: nối chuỗi (SQL injection), quên truyền transaction, `IN` > 2.100 tham số, `nvarchar` vs `varchar` mất index seek.
+**Q4. How do you handle exceptions globally?**
+> `UseExceptionHandler` as the outermost middleware with an `IExceptionHandler`, returning ProblemDetails with a trace ID and no internal details. Expected business failures — insufficient balance, an order already cancelled — aren't exceptions in my code; handlers return a result type that the controller maps to 409 or 422. Unexpected errors log at Error and alert; client errors log at Warning.
 
-### B3.2 SQL
-- **Normalization** (1NF–3NF) cho master data; **snapshot/denormalize** cho dữ liệu giao dịch đã thoả thuận (QuoteLine lưu giá tại thời điểm báo).
-- **JOIN**: INNER, LEFT, RIGHT, FULL, CROSS; **PK**, FK, UNIQUE, CHECK.
-- **Index**: clustered (bảng xếp theo key) vs nonclustered (key + clustered key); **composite** theo thứ tự Equality → Sort → Range; **INCLUDE** để covering; FK **không tự có index** (EF migration thì có); index làm ghi chậm hơn.
-- Seek vs scan vs key lookup; khi nhiều dòng, scan có thể thắng.
-- **Isolation**: Read Uncommitted (dirty read), Read Committed (mặc định SQL Server; Azure SQL bật **RCSI**), Repeatable Read, Serializable, Snapshot. Anomaly: dirty read, non-repeatable read, phantom, lost update. Không nâng cả transaction lên Serializable; khoá đúng dòng (`UPDLOCK, HOLDLOCK`) hoặc atomic UPDATE. **NOLOCK** không dùng cho số liệu tiền.
-- **Deadlock**: hai transaction khoá chéo; SQL Server chọn victim (lỗi 1205) → lock theo thứ tự cố định, transaction ngắn, retry.
-- **Query chậm**: Query Store (top theo tổng duration) → `sys.dm_exec_requests` (blocking, wait type) → actual execution plan → sửa (index, viết lại, statistics) → đo `SET STATISTICS IO, TIME ON`.
-- **Parameter sniffing**: plan cache theo tham số lần đầu → lúc nhanh lúc chậm. Sửa: `OPTION(RECOMPILE)` cho query hiếm, `OPTIMIZE FOR UNKNOWN`, index tốt hơn.
-- `CONVERT_IMPLICIT` (sai kiểu tham số) mất seek.
-- **Connection pooling**: Dispose = trả về pool (mặc định 100); cạn do không dispose, transaction dài, starvation; `pods × MaxPoolSize ≤ max_connections`.
-- Window function (`ROW_NUMBER`, `SUM() OVER`), CTE — hữu ích cho báo cáo.
-- Soft delete (`IsDeleted`) + filtered index; archive.
-- Partitioning: chỉ nhanh khi lọc theo cột partition; switch/drop thay DELETE lớn.
-- Read replica cho báo cáo (độ trễ replication).
+**Q5. How do you run background work in ASP.NET Core?**
+> For lightweight in-process work, a `BackgroundService` reading from a bounded `Channel`, creating a new DI scope per item so it gets its own DbContext. That work is lost on restart, so anything that must not be lost — sending a contract, crediting money — goes through a durable queue or a transactional outbox, processed idempotently. With several instances, scheduled jobs run on each instance unless I use a central scheduler or a lock, so jobs must be idempotent.
 
-### B3.3 Migration an toàn
-- **Expand → Migrate (backfill theo lô) → Contract**, mỗi bước một deploy, tương thích ngược (rolling deploy chạy song song bản cũ/mới).
-- NOT NULL: thêm NULL → backfill → đổi NOT NULL. Đổi tên cột: thêm cột mới, ghi cả hai, chuyển đọc, xoá cũ. Index lớn: `ONLINE = ON`. Update hàng loạt: chia lô (tránh lock escalation ~5.000 dòng).
-- Không `Database.Migrate()` lúc startup ở prod (nhiều instance chạy cùng lúc); dùng **migration bundle** / script idempotent (`dotnet ef migrations script --idempotent`) chạy ở pipeline; Dapper → DbUp/Flyway.
-- Backup trước migration lớn; rollback plan.
+**Q6. Liveness vs readiness?**
+> Liveness answers "is the process alive" and should be cheap, so the orchestrator only restarts truly stuck instances. Readiness answers "can I take traffic now" and may check the database or cache, so the load balancer stops routing to an instance that's starting up or has lost a dependency. Putting the database check in liveness makes a database blip restart every pod at once.
 
-### B3.4 Câu hỏi luyện
-1. Tracking vs AsNoTracking? When would you project to a DTO?
-2. What's the N+1 problem? How do you detect it?
-3. How does optimistic concurrency work in EF Core? What do you return to the client?
-4. When do you need an explicit transaction? What shouldn't happen inside one?
-5. A query got 20× slower overnight. What do you do?
-6. Explain clustered vs nonclustered index. How do you choose column order in a composite index?
-7. What isolation level does SQL Server use by default? What's RCSI?
-8. What is parameter sniffing?
-9. How do you add a NOT NULL column to a large table without downtime?
-10. When would you denormalize? Why snapshot prices on an order?
-11. EF Core vs Dapper — when each?
-12. What causes connection-pool exhaustion?
-13. How do you prevent SQL injection with Dapper?
-14. How would you design the schema for quotes, orders and payments?
-15. How would you find missing indexes when taking over a database?
+**Q7. IOptions, IOptionsSnapshot, IOptionsMonitor?**
+> `IOptions` reads once and is a singleton; `IOptionsSnapshot` is scoped and re-reads per request; `IOptionsMonitor` is a singleton that sees changes live and can notify. I validate options at startup so a missing setting fails the deployment instead of the first customer request.
+
+### B1.10 Tự kiểm tra
+1. Viết đúng thứ tự 6 middleware chính. Đổi chỗ AuthN/AuthZ thì sao?
+2. Vì sao xác thực hash webhook phải ở resource filter, không phải action filter?
+3. Singleton inject DbContext: kể 3 hậu quả và 2 cách sửa.
+4. `Channel` + `BackgroundService` có hợp cho gửi email xác nhận thanh toán không? Vì sao?
+5. Liveness kiểm tra DB thì chuyện gì xảy ra khi DB chập chờn 30 giây?
 
 ---
 
-## B4. REST API design ⏳
+## B2. ASP.NET MVC: model binding, validation, CSRF, over-posting, PRG
 
-> ⏳ **Chưa viết lại sâu.** Dưới đây là nội dung bản cũ (số tham chiếu section bên trong là số bản cũ, xem bảng đối chiếu ở 0.2). Claude sẽ viết lại trước khi Hiệp học tới.
+**Vì sao cần.** JD ghi "ASP.NET MVC và/hoặc Web API", và code tiếp quản từ đối tác Mỹ có thể là MVC (thậm chí MVC 5 trên .NET Framework). Hiệp có kinh nghiệm thật ở Joblogic (khoảng 20 view `.cshtml`, 27 controller, Razor + jQuery + Vue nhúng). Câu SA hay hỏi: "submit form thì chuyện gì xảy ra", "over-posting", "CSRF", "double submit".
 
-Giao điểm lớn nhất giữa SA (skill REST tự khai) và vị trí C#. Đã học Buổi 2 (`notes/02`).
+### B2.1 Một lần submit form đi qua những gì
+```
+Trình duyệt POST /quotes/42/edit (form-urlencoded + cookie đăng nhập + anti-forgery token)
+ → middleware (auth cookie → User)
+ → routing chọn QuotesController.Edit(int id, EditQuoteViewModel vm)
+ → filter: Authorization → Resource → model binding → validation → Action filter
+ → action: kiểm tra ModelState, gọi handler, nhận Result
+     ✔ thành công → RedirectToAction("Details", new { id })   (302)
+     ✘ lỗi validation → return View(vm)   (render lại form kèm lỗi)
+ → Result filter → Razor render HTML (nếu là View)
+```
+- **Model binding** lấy giá trị theo tên từ: route (`{id}`), query string, form, body (`[FromBody]`, chỉ đọc **một lần**), header (`[FromHeader]`), service (`[FromServices]`).
+- `[ApiController]` (cho API) tự trả **400 ProblemDetails** khi `ModelState` không hợp lệ và suy luận nguồn bind; MVC trả View thì **tự kiểm tra** `ModelState.IsValid`.
 
-### B4.1 Kiến thức cốt lõi
-- **Resource** là danh từ số nhiều: `GET /quotes`, `GET /quotes/{id}`, `POST /quotes`, `PATCH /quotes/{id}`. Hành động nghiệp vụ không phải CRUD → **action endpoint**: `POST /quotes/{id}/finalize`, `POST /orders/{id}/cancel` (chấp nhận được, nói rõ vì sao: chuyển trạng thái có luật, không phải sửa field).
-- **Verb**: GET (safe + idempotent), PUT (thay toàn bộ, idempotent), PATCH (sửa một phần, không idempotent theo định nghĩa), DELETE (idempotent, không safe), POST (không idempotent).
-- **Status code**:
-  - 200 OK, **201 Created + header `Location`**, 202 Accepted (việc chạy nền), 204 No Content.
-  - 400 validation, **401** chưa xác thực vs **403** không có quyền, 404, **409 Conflict** (trạng thái không cho phép / trùng), **412 Precondition Failed** (ETag lệch), 422 vi phạm luật nghiệp vụ (tuỳ team), 429 Too Many Requests, 500, 503 + `Retry-After`.
-- **Lỗi** theo **ProblemDetails (RFC 9457)**: `type, title, status, detail, instance` + `errorCode` ổn định + `traceId`; validation trả `errors` theo field để React map vào form. 500 không lộ stack/`ex.Message`.
-- **Idempotency**: POST tạo tiền/đơn → header `Idempotency-Key` (client sinh UUID). Server lưu (key, user, hash body, response) với **UNIQUE**; trùng key + cùng body → **replay response**; trùng key + khác body → 422; đang xử lý → 409. Giữ ~24h.
-- **Concurrency**: response có `ETag` (từ `rowversion`), client gửi `If-Match` khi sửa → 412 nếu đã bị người khác sửa.
-- **Pagination**: offset cho admin cần nhảy trang (chậm dần khi sâu, có thể trùng/sót khi chèn); **keyset/cursor** cho danh sách lớn: `WHERE (CreatedAt, Id) < (@c, @id) ORDER BY CreatedAt DESC, Id DESC`, cursor opaque, index khớp, sort xác định (có Id làm tie-breaker). Tránh `COUNT(*)` mỗi trang trên bảng lớn.
-- **Filtering/sorting**: `GET /orders?status=InProduction&storeId=12&sort=-createdAt`; whitelist field được sort.
-- **Versioning**: URL `/v1` (dễ nhìn, dễ route) hoặc header. Ưu tiên thay đổi **additive**. Breaking: xoá/đổi tên field, đổi kiểu, thêm field bắt buộc ở request, đổi ý nghĩa/status/enum. Client là **tolerant reader**. Deprecation: header `Deprecation`/`Sunset`, đo traffic theo version, báo trước. Package `Asp.Versioning`.
-- **Hợp đồng FE–BE**: **OpenAPI** (Swashbuckle/NSwag) → sinh TypeScript types/client (EIM có Swagger). Contract test nếu nhiều client.
-- **Việc chậm** (sinh PDF, gọi RTO provider): `202 Accepted` + `Location: /jobs/{id}`, client poll hoặc nhận push (SignalR/WebSocket).
-- **Bảo mật API**: HTTPS, auth (JWT bearer hoặc cookie), authorization theo resource (kiểm tra quyền sở hữu, không chỉ đăng nhập), rate limit, validate input, không lộ ID tuần tự nếu nhạy cảm.
-- **HATEOAS**: biết khái niệm (link trong response), thực tế ít dùng.
+### B2.2 Over-posting (mass assignment) — lỗi bảo mật kinh điển
+Entity:
+```csharp
+public class Quote { public int Id; public string CustomerName; public decimal Discount; public bool IsApproved; }
+```
+Action bind thẳng entity:
+```csharp
+[HttpPost] public async Task<IActionResult> Edit(Quote quote) { _db.Update(quote); await _db.SaveChangesAsync(); ... }
+```
+Form chỉ có ô `CustomerName`, nhưng kẻ xấu mở DevTools thêm `IsApproved=true&Discount=500` → model binder gán luôn → **tự duyệt báo giá, tự giảm giá**. `_db.Update(entity)` còn đánh dấu **mọi cột** là sửa → ghi đè cả cột không có trong form thành giá trị mặc định.
+Chặn:
+- **ViewModel/DTO chỉ chứa field được phép sửa**, map tay vào entity đã load từ DB:
+```csharp
+public record EditQuoteViewModel(string CustomerName, string? Notes);
+var quote = await _db.Quotes.SingleAsync(q => q.Id == id && q.TenantId == _tenant.Id);
+quote.Rename(vm.CustomerName);      // method domain có luật
+await _db.SaveChangesAsync();       // EF chỉ UPDATE cột thật sự đổi
+```
+- Không dùng `[Bind]` dài, không `TryUpdateModelAsync` không giới hạn field.
+- Field nhạy cảm (giá, chiết khấu, trạng thái duyệt) **server tự tính/kiểm quyền**, không tin form.
 
-### B4.2 Câu mẫu
-> For the Ops Hub I'd keep the API resource-oriented, with explicit action endpoints for business transitions like finalizing a quote, because those aren't just field updates. Errors follow ProblemDetails so the React side can map validation errors to fields. Anything that moves money or creates an order accepts an idempotency key, and edits use ETags so two staff members can't silently overwrite each other. The OpenAPI spec is the contract, and we generate TypeScript types from it so frontend and backend can't drift.
+### B2.3 Validation hai phía
+- **Client-side** (jQuery Unobtrusive Validation, React Hook Form): chỉ để UX nhanh. **Server-side luôn bắt buộc** (người dùng tắt JS, gọi thẳng API).
+- DataAnnotations (`[Required]`, `[Range(0, 100)]`, `[StringLength]`) cho luật đơn giản; **FluentValidation** cho luật phức tạp/phụ thuộc nhau; luật nghiệp vụ sâu (hạn mức, trạng thái) nằm ở **domain/handler**, trả lỗi về `ModelState.AddModelError` để hiển thị cạnh field.
+- Razor: `<span asp-validation-for="CustomerName"></span>`, `<div asp-validation-summary="ModelOnly">`.
 
-### B4.3 Câu hỏi luyện
-1. Design the API for finalizing a quote and converting it to a sales order. Endpoints, status codes, error responses?
-2. How do you design a REST endpoint that creates a resource? (201 + Location + body, 400 ProblemDetails, 409)
-3. What does idempotent mean? Which HTTP methods are idempotent? Is idempotent the same as safe?
-4. The user double-clicks "Create order" — what does the API do? (Idempotency-Key + UNIQUE + replay; UI disable nút; MVC thì PRG)
-5. Two staff edit the same order at once — what does the API do and what does the user see? (ETag/If-Match → 412 → UI tải bản mới để so sánh)
-6. 401 vs 403? 400 vs 422? 409 vs 412?
-7. How do you version an API used by an external mobile app? What counts as a breaking change?
-8. Offset vs cursor pagination — when each? Why does offset get slow?
-9. PUT vs PATCH?
-10. How do you keep TypeScript types in sync with C# DTOs?
-11. How do you return errors consistently across the API?
-12. An operation takes 10 seconds — how do you design the API?
-13. How would you design filtering and sorting on the orders list safely?
-14. How do you protect a public API from abuse? (rate limit theo user/IP/key, Redis sliding window/token bucket, 429 + Retry-After, exponential backoff cho login như PlaySweeps)
-15. Should business actions be `PATCH /orders/{id} {status: "Cancelled"}` or `POST /orders/{id}/cancel`? Trade-off?
+### B2.4 CSRF và anti-forgery token
+**Bản chất:** trang dùng **cookie authentication** → trình duyệt **tự động** gửi cookie cho mọi request tới domain đó, kể cả request do **site khác** kích hoạt.
+Tấn công: người dùng đang đăng nhập Ops Hub, mở `evil.com` có form ẩn tự submit `POST https://opshub.com/orders/42/cancel` → trình duyệt kèm cookie → server tưởng người dùng thật bấm.
+Phòng thủ:
+- **Anti-forgery token** (synchronizer token): server đặt một token vào form (`<input name="__RequestVerificationToken">`, tag helper `<form>` tự thêm) và một cookie liên kết; POST phải có **cả hai khớp nhau**. `evil.com` không đọc được token (same-origin policy) → không giả được.
+- `[ValidateAntiForgeryToken]` trên action, hoặc `AutoValidateAntiforgeryTokenAttribute` **toàn cục** cho mọi POST/PUT/DELETE.
+- AJAX: gửi token qua header (`RequestVerificationToken`).
+- Cookie `SameSite=Lax/Strict` chặn thêm phần lớn trường hợp (A2.3).
+- **API dùng `Authorization: Bearer`** (token do JS tự gắn vào header) **không bị CSRF** vì trình duyệt không tự gửi header đó → không cần anti-forgery; nhưng nếu SPA để JWT **trong cookie** thì lại cần chống CSRF.
+
+### B2.5 PRG (Post–Redirect–Get) chống double submit
+- POST thành công mà trả thẳng View → người dùng bấm F5 → trình duyệt **gửi lại POST** → tạo order lần 2.
+- PRG: POST xử lý xong → `RedirectToAction("Details")` (**302/303**) → trình duyệt GET trang kết quả → F5 chỉ GET lại. Thông báo "Đã lưu" qua `TempData` (sống đúng một request sau).
+- Chống double click nhanh: disable nút khi submit (UX) + **idempotency/unique constraint ở server** (C3). PRG không chặn được hai click trước khi trang kịp chuyển.
+
+### B2.6 Razor, view, tái sử dụng UI
+- `@model EditQuoteViewModel`, `asp-for`, `asp-action`, `asp-route-id` (tag helper); `@` **tự HTML-encode** → an toàn XSS mặc định. Nguy hiểm: `@Html.Raw(...)` với dữ liệu người dùng (rich text điều khoản) → **sanitize** (HtmlSanitizer) + CSP header.
+- **ViewModel** (có kiểu, compile-time check) > `ViewBag`/`ViewData` (dynamic, gõ sai tên là lỗi runtime).
+- **Layout** (`_Layout.cshtml`), **partial view** (mảnh HTML dùng lại, không logic riêng), **view component** (có logic + DI riêng, ví dụ widget "Balance due" trên nhiều trang), **tag helper** tự viết.
+- **Razor Pages**: mô hình theo trang (PageModel) cho CRUD đơn giản.
+- Joblogic: Razor + **Vue nhúng** cho phần tương tác (kéo-thả lưới Selling Rate), Razor cho form thường.
+
+### B2.7 Concurrency trên form MVC
+Hai nhân viên cùng mở form sửa đơn:
+- Gửi `RowVersion` (base64) trong **hidden field**; khi lưu gán `_db.Entry(order).Property(o => o.RowVersion).OriginalValue = vm.RowVersion;` → EF thêm `WHERE RowVersion = @original` → người lưu sau nhận `DbUpdateConcurrencyException` → hiển thị "Đơn đã bị người khác sửa", cho xem bản mới.
+
+### B2.8 Authorization trong MVC
+- `[Authorize]`, `[Authorize(Roles = "Manager")]`, **policy-based** `[Authorize(Policy = "CanApproveQuote")]` (requirement + handler).
+- **Resource-based**: quyền phụ thuộc **dữ liệu cụ thể** (đơn này thuộc store của user không?) → `await _authz.AuthorizeAsync(User, order, "CanEdit")`. Không có bước này = lỗi **IDOR/BOLA** (C2).
+- Joblogic: attribute permission tự viết trên action (`[Permission(...)]`).
+
+### B2.9 MVC 5 (.NET Framework) vs ASP.NET Core MVC
+| | ASP.NET MVC 5 | ASP.NET Core MVC |
+|---|---|---|
+| Nền tảng | .NET Framework, chỉ Windows/IIS, `System.Web` | .NET 6/8+, cross-platform, Kestrel |
+| Pipeline | `Global.asax`, HTTP modules/handlers | Middleware |
+| DI | Không có sẵn (dùng Autofac/Unity) | Có sẵn |
+| Cấu hình | `web.config` | `appsettings.json`, env vars, options |
+| Async | `.Result` dễ **deadlock** (có SynchronizationContext) | Không deadlock nhưng starvation |
+- Migrate dần: **strangler fig** — đặt app Core phía trước (YARP reverse proxy) chuyển từng route; hoặc dùng công cụ **.NET Upgrade Assistant**; tách thư viện nghiệp vụ sang .NET Standard/.NET 8 trước.
+
+### B2.10 Bẫy hay sai
+- Bind thẳng entity; dùng `_db.Update(entity)` từ dữ liệu form.
+- "Có validation phía client là đủ".
+- "API cũng cần anti-forgery" / "SPA để JWT trong cookie thì không cần chống CSRF" — cả hai sai.
+- Nghĩ PRG chống được double click.
+- `Html.Raw` dữ liệu người dùng.
+
+### B2.11 Câu hỏi phỏng vấn & trả lời mẫu
+
+**Q1. Walk me through submitting a form in ASP.NET MVC.**
+> The browser posts the form with the auth cookie and the anti-forgery token. Middleware authenticates the cookie, routing selects the action, and the filter pipeline runs: authorization, anti-forgery validation, model binding into a view model, then validation into ModelState. The action checks ModelState; if invalid, it returns the same view with the errors; if valid, it calls the application handler and, on success, redirects to a GET page — post-redirect-get — so a refresh doesn't resubmit.
+
+**Q2. What is over-posting and how do you prevent it?**
+> It's when the model binder sets properties the form never intended to expose, because an attacker adds fields like `IsApproved=true` or a discount to the request. It happens when you bind directly to entities. I bind to a view model with only the editable fields, load the entity from the database scoped to the user's tenant, and apply the changes through domain methods. Prices, discounts and approval flags are calculated or authorised on the server, never taken from the form.
+
+**Q3. What is CSRF and why does MVC need anti-forgery tokens but a bearer-token API doesn't?**
+> CSRF abuses the fact that browsers attach cookies automatically: another site can make the user's browser post to our app with their session cookie. The anti-forgery token is a secret value in the form that the attacker's site can't read, so a forged request fails validation; SameSite cookies add another layer. A bearer-token API isn't exposed the same way, because the browser never adds the Authorization header by itself — our JavaScript does. If a SPA keeps its token in a cookie, though, it needs CSRF protection again.
+
+**Q4. A user double-submits an order form. How do you stop duplicates?**
+> On the UI, disable the button on submit and use post-redirect-get so a refresh doesn't repeat the POST. Those only improve the experience; the real guarantee is on the server: the form carries a unique submission or idempotency key, and the order insert relies on a unique constraint in the same transaction, so a second request returns the order that was already created.
+
+**Q5. Two staff edit the same order form. What happens?**
+> I'd use optimistic concurrency: the form carries the row version in a hidden field, and the update includes it in the WHERE clause. The second person to save gets a concurrency exception, and we show them that the order changed, with the latest values, instead of silently overwriting the first person's changes.
+
+**Q6. How would you migrate an MVC 5 app to ASP.NET Core?**
+> Incrementally. I'd put an ASP.NET Core app in front with YARP as a reverse proxy, move routes one by one, and share session or auth between the two during the transition. Business logic moves first into libraries that target modern .NET. A big-bang rewrite loses hidden business rules and blocks feature work for months, so I'd avoid it.
+
+### B2.12 Tự kiểm tra
+1. Viết payload over-posting cho form sửa quote; sửa code thế nào?
+2. Vì sao `evil.com` không lấy được anti-forgery token?
+3. PRG chặn được gì, không chặn được gì?
+4. API Bearer có cần anti-forgery không? JWT trong cookie thì sao?
+5. Resource-based authorization khác `[Authorize(Roles=...)]` ở đâu?
+
+---
+
+## B3. EF Core và Dapper: tracking, N+1, split query, concurrency, transaction, migration
+
+**Vì sao cần.** Hầu hết bug hiệu năng trong app .NET nằm ở lớp truy cập dữ liệu: N+1, kéo cả bảng về RAM, tracking thừa, JOIN nhân dòng. SA sẽ hỏi "EF hay Dapper", "N+1 là gì và phát hiện thế nào", "migration không downtime". Nền SQL ở A5/A6; phần này là **ORM nói chuyện với SQL thế nào**.
+
+### B3.1 DbContext là gì
+- **DbContext = Unit of Work + change tracker + một connection** (mở khi cần, trả về pool khi xong). **Scoped** (một mỗi request), **không thread-safe**: một context chỉ chạy **một lệnh tại một thời điểm**.
+- `DbSet<T>` đã là repository; `SaveChanges()` gom mọi thay đổi đã track thành các câu INSERT/UPDATE/DELETE trong **một transaction**.
+- **Identity resolution**: trong một context, cùng một khoá chính chỉ có **một object** → query lại `Quotes.Find(42)` trả về đúng object đã track (không đọc lại DB nếu dùng `Find`).
+
+### B3.2 Change tracking hoạt động thế nào
+1. Query có tracking → EF lưu **snapshot** giá trị gốc của từng entity.
+2. Bạn sửa property trong C#.
+3. `SaveChanges` gọi **`DetectChanges`**: so từng entity đang track với snapshot → sinh `UPDATE Quotes SET CustomerName = @p0 WHERE Id = @p1` **chỉ với cột đổi**.
+- Chi phí: track 10.000 entity = RAM cho 10.000 snapshot + `DetectChanges` duyệt hết. Màn hình **chỉ đọc** → `AsNoTracking()`, tốt hơn nữa là **projection**:
+```csharp
+var rows = await _db.Orders
+    .Where(o => o.StoreId == storeId && o.CreatedAt >= from)
+    .OrderByDescending(o => o.CreatedAt)
+    .Select(o => new OrderRow(o.Id, o.Customer.Name, o.Total, o.Status))   // chỉ 4 cột, không tracking
+    .Take(50)
+    .ToListAsync(ct);
+```
+Projection sinh `SELECT` đúng cột cần, tự JOIN `Customer`, khớp được **covering index** (A5.3).
+
+### B3.3 N+1 — phát hiện và sửa
+```csharp
+var orders = await _db.Orders.Where(o => o.StoreId == id).ToListAsync();   // 1 query
+foreach (var o in orders)
+    total += o.Lines.Sum(l => l.Amount);   // lazy loading: mỗi order 1 query → N query
+```
+50 order = **51 query**; mỗi query 2 ms round-trip → 100 ms chỉ để chờ mạng; 500 order → 1 s. Không lazy loading mà **query trong vòng lặp** cũng y hệt.
+- Sửa: projection tính ở DB (`Select(o => new { o.Id, Total = o.Lines.Sum(l => l.Amount) })`), `Include(o => o.Lines)`, hoặc batch: lấy danh sách id rồi một query `WHERE OrderId IN (...)` (`Contains`).
+- Phát hiện: log `Microsoft.EntityFrameworkCore.Database.Command` (có thời gian từng lệnh), **đếm số câu SQL mỗi request** (App Insights dependency, MiniProfiler); trace thấy hàng chục span SQL giống nhau liên tiếp = N+1.
+
+### B3.4 Include nhiều collection: nhân dòng và `AsSplitQuery`
+- `Include(u => u.Transactions).Include(u => u.LoginHistories)` → một câu SQL `LEFT JOIN` cả hai → 100 × 50 = **5.000 dòng** cho 150 dòng thật (A5.7). EF Core cảnh báo trong log.
+- `.AsSplitQuery()` (EF Core 5+): tách thành 3 câu (User, Transactions, LoginHistories) → ~151 dòng. Đổi lại: thêm round-trip, và **không nhất quán tuyệt đối** nếu có ghi xen giữa các câu (trừ khi chạy trong transaction Snapshot/Serializable). Có thể đặt mặc định toàn cục `UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery)`.
+- Include **chuỗi** (Order → Lines → Product) không nhân dòng theo kiểu này.
+
+### B3.5 Những API cần biết
+- `ToQueryString()`: xem SQL EF sẽ sinh.
+- `ExecuteUpdateAsync` / `ExecuteDeleteAsync` (EF 7+): một câu SQL cập nhật hàng loạt, **không load entity, không qua change tracker** → nhanh, nhưng **bỏ qua interceptor/audit/domain event** dựa trên SaveChanges.
+```csharp
+await _db.Quotes.Where(q => q.Status == QuoteStatus.Sent && q.ExpiresAt < now)
+    .ExecuteUpdateAsync(s => s.SetProperty(q => q.Status, QuoteStatus.Expired), ct);
+```
+- **Global query filter**: `modelBuilder.Entity<Order>().HasQueryFilter(o => o.TenantId == _tenant.Id && !o.IsDeleted)` → tự thêm vào mọi query (multi-tenant, soft delete). `IgnoreQueryFilters()` để bỏ khi cần (cẩn thận).
+- **Interceptor**: `SaveChangesInterceptor` (audit, set `UpdatedAt`), `DbConnectionInterceptor` (Joblogic set `SESSION_CONTEXT` tenant mỗi lần mở connection).
+- **Value converter / owned type**: lưu `Money` value object, enum dạng string; `HasPrecision(18,2)` cho decimal.
+- **Compiled query** (`EF.CompileAsyncQuery`): bỏ bước dịch LINQ cho query nóng.
+- **Raw SQL an toàn**: `FromSql($"... WHERE Id = {id}")` / `FromSqlInterpolated` → **tham số hoá**; `FromSqlRaw("... " + id)` → **SQL injection**. EF Core 8: `Database.SqlQuery<T>(...)` map SQL thô ra kiểu bất kỳ.
+- EF Core ≥ 3 **ném lỗi** khi LINQ không dịch được (bản ≤ 2 âm thầm chạy trong RAM). EF6 vẫn chạy trên .NET 8 nhưng không phát triển thêm (Joblogic còn EF6 ở Core cũ).
+
+### B3.6 Concurrency với EF
+```csharp
+public class Order { public int Id { get; set; } [Timestamp] public byte[] RowVersion { get; set; } = default!; }
+try { await _db.SaveChangesAsync(ct); }
+catch (DbUpdateConcurrencyException) { return Conflict(); }   // 409, client tải lại
+```
+EF sinh `UPDATE ... WHERE Id = @id AND RowVersion = @original`; 0 dòng → exception. Với **atomic update** (trừ tồn kho, tăng `Booked`), dùng `ExecuteUpdateAsync` có điều kiện hoặc SQL thô — không load-sửa-save (lost update, A6.3).
+
+### B3.7 Transaction và retry trong EF
+- `SaveChanges` **đã là một transaction**. Tự mở transaction khi: nhiều lần `SaveChanges` phải cùng thành công, trộn SQL thô + EF, hoặc cần `UPDLOCK`.
+- **Không** gọi HTTP/email/queue bên trong transaction (giữ lock lâu; gửi email rồi rollback = email sai) → **outbox** (C5).
+- `EnableRetryOnFailure()` (Azure SQL/RDS chập chờn): retry tự động **không được** dùng cùng transaction tự mở trừ khi bọc trong **execution strategy**:
+```csharp
+var strategy = _db.Database.CreateExecutionStrategy();
+await strategy.ExecuteAsync(async () =>
+{
+    await using var tx = await _db.Database.BeginTransactionAsync(ct);
+    // ... nhiều bước
+    await _db.SaveChangesAsync(ct);
+    await tx.CommitAsync(ct);
+});   // lỗi tạm thời → chạy lại CẢ khối → khối phải idempotent
+```
+
+### B3.8 Dapper — khi nào và bẫy
+- **Dapper** = micro-ORM của StackExchange: extension method trên `IDbConnection`, bạn viết SQL, nó map kết quả sang object (sinh IL và cache). Nhanh gần ADO.NET, không có change tracking/migration/LINQ.
+- PlaySweeps dùng **Dapper + stored procedure + repository** bọc tên SP và mapping (DI bằng Autofac).
+- Chọn: **EF Core** cho CRUD nghiệp vụ, domain model, migration, LINQ an toàn kiểu; **Dapper** cho query đọc phức tạp/báo cáo, SQL tối ưu tay, stored procedure có sẵn. Dùng chung trong một app là bình thường.
+- Bẫy Dapper:
+  - **Nối chuỗi SQL** → injection. Luôn `@param`.
+  - Quên truyền `transaction:` khi đã mở transaction → lệnh chạy ngoài transaction (hoặc lỗi).
+  - `WHERE Id IN @ids` với > **2.100 tham số** (giới hạn SQL Server) → dùng TVP (table-valued parameter) hoặc chia lô.
+  - `string` mặc định thành `nvarchar` → cột `varchar` bị `CONVERT_IMPLICIT`, mất index seek → `new DbString { Value = x, IsAnsi = true }`.
+  - `Query` mặc định **buffered** (đọc hết vào RAM); dữ liệu lớn → `buffered: false` / `QueryUnbufferedAsync`.
+
+### B3.9 Migration an toàn khi deploy không downtime
+**Vấn đề:** rolling deploy chạy **bản cũ và bản mới cùng lúc** vài phút → schema phải hợp với **cả hai**.
+**Expand → Migrate → Contract** (mỗi bước một lần deploy):
+- Thêm cột NOT NULL: (1) thêm cột **NULL** (hoặc có default) → (2) code mới ghi cột đó, job **backfill theo lô** dữ liệu cũ → (3) đổi sang NOT NULL.
+- Đổi tên cột `Name` → `CustomerName`: thêm cột mới, ghi cả hai, backfill, chuyển đọc sang cột mới, ngừng ghi cột cũ, deploy sau mới xoá cột cũ.
+- Tạo index trên bảng lớn: `CREATE INDEX ... WITH (ONLINE = ON)` (Enterprise/Azure SQL) để không khoá bảng; EF migration cho phép SQL tuỳ chỉnh.
+- UPDATE/DELETE hàng loạt: chia lô 1.000–4.000 dòng (tránh **lock escalation** ~5.000, A6.2) và log lớn.
+- **Không** gọi `Database.Migrate()` lúc app khởi động ở production (nhiều instance cùng chạy migration, app thiếu quyền DDL nên cấp quyền quá rộng) → chạy ở pipeline: `dotnet ef migrations bundle` (file chạy được) hoặc `dotnet ef migrations script --idempotent`; với Dapper dùng **DbUp/Flyway**.
+- Backup/point-in-time restore trước migration lớn; có rollback plan (thường là "rollback app, giữ schema" nhờ expand/contract).
+
+### B3.10 Bẫy hay sai
+- Load entity → sửa → save cho trừ tồn kho/balance (lost update).
+- `ToList()` rồi mới `Where` / repository trả `IEnumerable` (A3.8).
+- `Include` mọi thứ "cho chắc".
+- Nghĩ `AsSplitQuery` luôn nhanh hơn (thêm round-trip; ít dòng thì single query tốt hơn).
+- `ExecuteUpdate` rồi thắc mắc vì sao audit không ghi.
+- `Database.Migrate()` khi startup ở prod.
+
+### B3.11 Câu hỏi phỏng vấn & trả lời mẫu
+
+**Q1. Tracking vs AsNoTracking vs projection?**
+> Tracking keeps a snapshot of each loaded entity so SaveChanges can detect what changed and update only those columns — I use it when I'm going to modify the data. For read-only screens, `AsNoTracking` avoids the snapshot cost, and projecting with `Select` into a DTO is better still: EF fetches only the needed columns, joins what it needs, and the query can be served by a covering index.
+
+**Q2. What is the N+1 problem and how do you detect it?**
+> One query loads a list and then each item triggers another query — through lazy loading or a query inside a loop — so 50 orders become 51 round trips; at 2 ms each that's 100 ms of pure waiting, growing with the data. I detect it by counting SQL commands per request in the EF command log, Application Insights dependencies or MiniProfiler: a trace with dozens of identical queries in a row is the giveaway. The fix is a projection that computes in the database, an `Include`, or one batched query with `Contains`.
+
+**Q3. When would you use split queries?**
+> When I include two or more collections of the same parent: a single query joins them and returns the product of their row counts — 100 transactions times 50 logins is 5,000 rows instead of 150 — so network and materialisation explode. Split query issues one query per collection. The trade-offs are extra round trips and the possibility of inconsistent data if writes happen between the queries, so for small collections a single query is fine.
+
+**Q4. EF Core or Dapper?**
+> EF Core for most business code: change tracking, migrations, type-safe LINQ and less boilerplate. Dapper when I want full control of the SQL — complex reporting queries, hand-tuned joins, or existing stored procedures, which is what PlaySweeps used behind repositories. They coexist fine. With Dapper the risks are mine: always parameters, pass the transaction explicitly, watch the 2,100-parameter limit and nvarchar versus varchar parameters.
+
+**Q5. When do you need an explicit transaction, and what shouldn't happen inside it?**
+> SaveChanges is already transactional, so I open one explicitly when several SaveChanges calls or raw SQL must commit together, or when I need an update lock. Inside it I never call external services or send emails: it holds locks while waiting on the network, and if we roll back, the email has already gone. Side effects go through an outbox written in the same transaction. If retry-on-failure is enabled, the whole transaction runs inside the execution strategy and has to be idempotent.
+
+**Q6. How do you add a NOT NULL column to a large table without downtime?**
+> Expand and contract across deployments: add it as nullable or with a default, deploy code that writes it, backfill old rows in small batches to avoid lock escalation, then make it NOT NULL in a later release. During a rolling deploy old and new versions run side by side, so every schema step has to work for both. Migrations run from the pipeline as a bundle or idempotent script, not from `Database.Migrate()` at startup.
+
+**Q7. How do you prevent SQL injection with raw SQL in EF or Dapper?**
+> Never concatenate input into SQL. In EF, `FromSql` or `FromSqlInterpolated` turn interpolated values into parameters, while `FromSqlRaw` with concatenation does not. In Dapper, always use `@parameters`. Dynamic column names for sorting come from a whitelist, never from the request.
+
+### B3.12 Tự kiểm tra
+1. `DetectChanges` làm gì? Vì sao track 10.000 entity chậm?
+2. Viết lại vòng lặp N+1 ở B3.3 thành một query.
+3. `AsSplitQuery`: lợi, hại, khi nào không nên.
+4. `ExecuteUpdateAsync` bỏ qua những gì?
+5. Kể 4 bẫy Dapper.
+6. Đổi tên cột trên bảng 50 triệu dòng mà không downtime: các bước?
+
+---
+
+## B4. REST API design
+
+**Vì sao cần.** Đây là giao điểm lớn nhất giữa SA (tự khai REST) và vị trí C#. Câu hỏi thường là thiết kế cụ thể: "API finalize quote rồi chuyển thành order", "double click tạo order", "hai người sửa cùng lúc", "phân trang danh sách lớn", "versioning cho mobile app". Câu trả lời Senior gắn **ngữ nghĩa HTTP** với **đúng/sai dữ liệu**.
+
+### B4.1 Resource, method, ngữ nghĩa
+- **Resource** là danh từ số nhiều, có cấp: `/quotes`, `/quotes/{id}`, `/quotes/{id}/lines`, `/orders/{id}/payments`.
+- **Method và tính chất:**
+| Method | Safe (không đổi dữ liệu) | Idempotent (gọi N lần = 1 lần) | Dùng cho |
+|---|---|---|---|
+| GET | ✅ | ✅ | Đọc |
+| PUT | ❌ | ✅ | Thay **toàn bộ** resource (client gửi bản đầy đủ) |
+| PATCH | ❌ | ❌ (theo định nghĩa; có thể thiết kế idempotent) | Sửa **một phần** (JSON Merge Patch / JSON Patch) |
+| DELETE | ❌ | ✅ | Xoá (lần 2 trả 404 hoặc 204, trạng thái server vẫn như nhau) |
+| POST | ❌ | ❌ | Tạo mới, hoặc **hành động nghiệp vụ** |
+- **Idempotent ≠ safe**: DELETE idempotent nhưng không safe. Idempotent là về **trạng thái server**, không phải response giống nhau.
+- **Hành động nghiệp vụ** (chuyển trạng thái có luật) → endpoint hành động: `POST /quotes/{id}/finalize`, `POST /orders/{id}/cancel` (body có lý do). Lý do: không chỉ đổi một field, có kiểm tra luật, audit, side effect. `PATCH /orders/{id} { "status": "Cancelled" }` cho phép client đặt trạng thái tuỳ ý → khó kiểm soát luật chuyển trạng thái.
+
+### B4.2 Status code — chọn đúng và nhất quán
+| Code | Khi nào | Ví dụ Ops Hub |
+|---|---|---|
+| **200 OK** | Thành công có body | GET quote |
+| **201 Created** + `Location` | Tạo mới | `POST /orders` → `Location: /orders/981` |
+| **202 Accepted** | Nhận việc, xử lý nền | Sinh PDF hợp đồng → `Location: /jobs/77` |
+| **204 No Content** | Thành công không body | DELETE |
+| **400** | Request sai định dạng/validation | Thiếu `customerName` |
+| **401** | **Chưa xác thực** (không có/sai token) | Token hết hạn |
+| **403** | Đã xác thực nhưng **không có quyền** | Sales xem báo cáo lợi nhuận |
+| **404** | Không tồn tại (hoặc **giấu** resource của tenant khác) | Order của công ty khác → 404 thay vì 403 để không lộ sự tồn tại |
+| **409 Conflict** | Xung đột trạng thái/trùng | Finalize quote đã finalize; xe hết chỗ |
+| **412 Precondition Failed** | `If-Match` không khớp ETag | Người khác đã sửa đơn |
+| **422** | Đúng định dạng nhưng vi phạm luật nghiệp vụ (tuỳ quy ước team) | Deposit lớn hơn tổng đơn |
+| **429** + `Retry-After` | Vượt rate limit | |
+| **500** | Lỗi không mong đợi | |
+| **503** + `Retry-After` | Tạm không phục vụ | Bảo trì, dependency sập |
+- **Lỗi** theo **ProblemDetails (RFC 9457)**: `type, title, status, detail, instance` + `errorCode` ổn định (`quote.already_finalized`) để FE xử lý + `traceId`; validation có `errors: { "customerName": ["Required"] }` để React map vào field.
+- **Callback/webhook của provider** (Pragmatic, payment): trả theo **spec của provider** (thường 200 + mã lỗi riêng), không theo quy ước REST của mình.
+
+### B4.3 Idempotency-Key cho POST (chống tạo trùng khi retry)
+Tình huống: app gửi `POST /orders`, mạng đứt trước khi nhận response → client **không biết** order đã tạo chưa → retry → **2 order**.
+Giải pháp (kiểu Stripe):
+1. Client sinh **UUID** cho mỗi ý định ("tạo order từ quote 42"), gửi header `Idempotency-Key`. Retry dùng **lại cùng key**.
+2. Server: bảng `IdempotencyKeys(Key, UserId, RequestHash, Status, ResponseCode, ResponseBody, CreatedAt)` với **UNIQUE(Key, UserId)**.
+3. Xử lý: **INSERT key trước** (trạng thái `InProgress`) **trong cùng transaction** với việc tạo order (hoặc trước, nếu xử lý dài).
+   - Trùng key + body giống → **trả lại đúng response lần đầu** (replay), không báo lỗi.
+   - Trùng key + body khác → **422** (dùng sai key).
+   - Trùng key đang `InProgress` → **409** (đang xử lý, thử lại sau).
+4. Giữ key ~24 giờ (API client). Với **ledger tiền** thì transaction id giữ **vĩnh viễn**.
+- Với "tạo order từ quote" còn có khoá tự nhiên: **UNIQUE(Orders.QuoteId)** → không cần header vẫn chặn được trùng.
+
+### B4.4 Concurrency: ETag / If-Match (optimistic qua HTTP)
+- `GET /orders/42` → response header `ETag: "AAAAAAAAB9E="` (từ `rowversion`).
+- `PUT /orders/42` gửi `If-Match: "AAAAAAAAB9E="` → server `UPDATE ... WHERE RowVersion = @etag` → 0 dòng → **412 Precondition Failed** → UI: "Đơn đã bị người khác sửa", tải bản mới, cho so sánh.
+- Không có cơ chế này → **lost update** giữa hai nhân viên (người lưu sau đè người lưu trước).
+
+### B4.5 Pagination, filter, sort
+- **Offset** `?page=500&size=20` → `OFFSET 9980 ROWS FETCH NEXT 20` → DB vẫn phải **duyệt bỏ 9.980 dòng** → càng sâu càng chậm; có dòng mới chèn → **trùng/sót** giữa các trang. Hợp: màn hình admin cần nhảy trang, dữ liệu nhỏ.
+- **Keyset/cursor** `?after=eyJjIjoiMjAyNi0xMC0yOVQxMDowMCIsImlkIjo5ODF9`:
+```sql
+SELECT TOP (20) Id, CreatedAt, Total FROM Orders
+WHERE StoreId = @s AND (CreatedAt < @c OR (CreatedAt = @c AND Id < @id))
+ORDER BY CreatedAt DESC, Id DESC;          -- index (StoreId, CreatedAt DESC, Id DESC)
+```
+  Luôn nhanh (seek rồi đọc 20 dòng), không trùng/sót; sort phải **xác định** (thêm `Id` làm tie-breaker); cursor **opaque** (base64) để đổi cách cài đặt sau. Không nhảy trang tuỳ ý được.
+- Tránh `COUNT(*)` mỗi trang trên bảng lớn (trả `hasMore` hoặc count ước lượng).
+- Filter/sort: `GET /orders?status=InProduction&storeId=12&sort=-createdAt`; **whitelist** field được sort/filter (không đưa thẳng tên cột vào SQL); giới hạn `size` tối đa (vd. 100).
+
+### B4.6 Versioning và breaking change
+- **Breaking**: xoá/đổi tên field, đổi kiểu, thêm field **bắt buộc** ở request, đổi ý nghĩa field/status code, **thêm giá trị enum** mà client cũ không xử lý (tuỳ client).
+- **Non-breaking**: thêm field optional, thêm field ở response, thêm endpoint. Client phải là **tolerant reader** (bỏ qua field lạ).
+- Cách version: URL `/v1/` (dễ thấy, dễ route, dễ cache — hợp public API, mobile app không ép cập nhật được), header/media type (URL gọn, khó debug). .NET: `Asp.Versioning`.
+- Deprecation: header `Deprecation`/`Sunset`, đo traffic theo version, báo trước, chỉ tắt khi traffic về 0.
+
+### B4.7 Việc chậm, file, realtime
+- Việc > vài giây (sinh PDF, gọi RTO provider): `202 Accepted` + `Location: /jobs/{id}` → client poll `GET /jobs/{id}` hoặc nhận push (SignalR/WebSocket/webhook).
+- Upload/download file lớn: **presigned URL S3** — API chỉ kiểm quyền và cấp URL ngắn hạn; file đi thẳng client ↔ S3, không qua app.
+
+### B4.8 Hợp đồng FE–BE
+- **OpenAPI** là hợp đồng (Swashbuckle/NSwag sinh từ code, hoặc viết spec trước — design-first), sinh **TypeScript types/client** (openapi-typescript, NSwag) → FE và BE không lệch nhau. Contract test (Pact) khi nhiều client.
+
+### B4.9 Thiết kế mẫu: finalize quote → tạo order
+```
+POST /quotes/42/finalize
+  → 200 { id, status: "Finalized", total, taxRate, expiresAt, etag }
+  → 409 { errorCode: "quote.already_finalized" } | 422 { errorCode: "quote.expired" }
+
+POST /orders            Idempotency-Key: 3f2c...
+  body { quoteId: 42, saleType: "RTO" | "Cash", depositAmount }
+  → 201 Location: /orders/981   (lines copy từ snapshot của quote đã finalize)
+  → 409 { errorCode: "order.exists_for_quote", orderId: 981 }   (UNIQUE QuoteId)
+  → 422 { errorCode: "order.deposit_exceeds_total" }
+
+POST /orders/981/cancel   body { reason }   If-Match: "..."
+  → 200 | 409 order.cannot_cancel (đã giao) | 412 (đã bị sửa)
+```
+
+### B4.10 Bảo mật API
+- HTTPS; xác thực (cookie hoặc bearer, C1); **authorization theo resource** mỗi lần (order thuộc tenant/store của user?) — thiếu là **BOLA/IDOR**, lỗi số 1 OWASP API; rate limit; validate input; giới hạn kích thước request; không lộ id tuần tự nhạy cảm; không trả entity (lộ field).
+
+### B4.11 Bẫy hay sai
+- POST trả 200 không có `Location`; 401 và 403 lẫn lộn.
+- Trả lỗi khi request trùng thay vì replay.
+- Idempotency "kiểm tra key rồi mới insert" (check-then-act) thay vì UNIQUE.
+- Offset cho infinite scroll bảng lớn; sort không có tie-breaker.
+- `PATCH status` cho mọi chuyển trạng thái.
+
+### B4.12 Câu hỏi phỏng vấn & trả lời mẫu
+
+**Q1. Design the API to finalize a quote and convert it to an order.**
+> Finalizing is a business transition, so it's `POST /quotes/{id}/finalize`: it validates the quote, snapshots prices and tax, and returns 200 with the new state, 409 if it's already finalized or 422 if it's expired. Creating the order is `POST /orders` with the quote ID and an Idempotency-Key header; it copies lines from the finalized snapshot and returns 201 with a Location header. A unique constraint on the quote ID in the orders table guarantees one order per quote, so a retry or double click gets 409 with the existing order ID — or the replayed 201 if it's the same idempotency key. Errors are ProblemDetails with stable error codes the React app can switch on.
+
+**Q2. What does idempotent mean? Which methods are idempotent?**
+> Calling it once or many times leaves the server in the same state. GET, PUT and DELETE are idempotent by definition; POST and PATCH aren't. Idempotent isn't the same as safe — DELETE changes state but repeating it doesn't change it further. For POSTs that move money or create orders, I make them idempotent with a client-generated key stored under a unique constraint, and replay the original response on a retry.
+
+**Q3. Two staff edit the same order at the same time. What does the API do?**
+> Each GET returns an ETag from the row version; the update sends it back in If-Match, and the UPDATE includes it in the WHERE clause. If someone saved in between, zero rows are affected and we return 412. The UI then reloads the order and shows what changed, so nobody silently overwrites someone else's work.
+
+**Q4. Offset or cursor pagination?**
+> Offset is simple and allows jumping to page 37, but the database still walks past every skipped row, so deep pages get slower, and inserts shift rows so users see duplicates or miss items. Keyset pagination filters on the last seen sort key plus the ID as a tie-breaker, so every page is an index seek and stable under inserts, at the cost of no random page jumps. I'd use offset for small admin lists and keyset for large or infinite-scroll lists like order history.
+
+**Q5. How do you version an API used by a mobile app?**
+> I avoid breaking changes as long as possible: add optional fields, never remove or repurpose them, and clients ignore unknown fields. When a breaking change is unavoidable, I add `/v2` alongside `/v1`, mark v1 with Deprecation and Sunset headers, measure traffic per version, and only remove v1 when usage is gone — mobile users don't all update, so the old version can live for months.
+
+**Q6. An operation takes 10 seconds. How do you design the API?**
+> I don't hold the request open. The POST validates, enqueues the work and returns 202 Accepted with a Location to a job resource; the client polls it or gets a SignalR push when it's done, and the job result links to the output, like a presigned URL for the generated PDF. The job is idempotent so a retry of the POST doesn't generate it twice.
+
+**Q7. `PATCH /orders/{id} {status}` or `POST /orders/{id}/cancel`?**
+> For lifecycle transitions I prefer the explicit action. Cancelling has rules — not after delivery, a reason, maybe a fee — plus audit and side effects like freeing a delivery slot. An action endpoint makes those rules explicit and lets authorization differ per action. PATCH is fine for plain field edits like notes or a phone number.
+
+### B4.13 Tự kiểm tra
+1. 401 vs 403; 409 vs 412 vs 422 — mỗi cái một ví dụ Ops Hub.
+2. Mô tả luồng Idempotency-Key khi: trùng key cùng body, khác body, đang xử lý.
+3. Viết câu SQL keyset cho danh sách payment theo `PaidAt DESC`.
+4. Liệt kê 4 breaking change.
+5. Vì sao trả 404 thay vì 403 khi truy cập order của tenant khác?
 
 ---
 
