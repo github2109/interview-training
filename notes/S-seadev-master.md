@@ -39,10 +39,10 @@ Ký hiệu trạng thái: ⬜ chưa học · 📖 đang học · ✅ xong (đã 
 | C1 | Authentication: stateful vs stateless, session cookie vs JWT, refresh, revoke | SA | Cao (Agapi đã hỏi) | ⬜ |
 | C2 | Security: OWASP, secret, bảo vệ tiền trước người nội bộ | SA | Trung bình–Cao | ⬜ |
 | C3 | Concurrency dữ liệu và idempotency xuyên hệ thống | SA | Cao 60% | ⬜ |
-| C4 | Redis: bản chất, persistence RDB/AOF, khi Redis chết, distributed lock, cache | SA | Trung bình–Cao (Agapi đã hỏi) | ⏳ |
-| C5 | Messaging, background job, outbox, saga | SA | Trung bình 50% | ⏳ |
-| C6 | Scale và load balancer: thuật toán, sticky session, health check, CAP | SA | Trung bình–Cao (Agapi đã hỏi) | ⏳ |
-| C7 | SQL vs NoSQL (MongoDB, Cosmos DB) | SA | Trung bình (Agapi đã hỏi) | ⏳ |
+| C4 | Redis: bản chất, persistence RDB/AOF, khi Redis chết, distributed lock, cache | SA | Trung bình–Cao (Agapi đã hỏi) | ⬜ |
+| C5 | Messaging, background job, outbox, saga | SA | Trung bình 50% | ⬜ |
+| C6 | Scale và load balancer: thuật toán, sticky session, health check, CAP | SA | Trung bình–Cao (Agapi đã hỏi) | ⬜ |
+| C7 | SQL vs NoSQL (MongoDB, Cosmos DB) | SA | Trung bình (Agapi đã hỏi) | ⬜ |
 | C8 | Tích hợp bên thứ ba và resilience | SA | Trung bình 55% | ⏳ |
 | C9 | Observability và chẩn đoán "request mất 8 giây" | SA | Cao (Agapi đã hỏi) | ⏳ |
 | C10 | CI/CD, deploy an toàn, build .NET nhanh hơn | SA | Trung bình–Cao 60% | ⏳ |
@@ -2454,72 +2454,442 @@ UI disable nút → PRG (MVC) → `Idempotency-Key` (API) → **UNIQUE ở DB** 
 
 ---
 
-## C4. Redis: persistence, sự cố, distributed lock, cache ⏳
+## C4. Redis: mô hình chạy, persistence, sự cố, lock và cache
 
-> ⏳ **Chưa viết lại sâu.** Nội dung cũ về cache nằm ở C5 mục "Caching" và distributed lock ở C3. Sẽ viết lại sâu: Redis single-thread, persistence RDB/AOF, replication/Sentinel/Cluster, khi Redis chết, RedLock và fencing token, cache stampede.
+**Vì sao cần.** Ở Agapi Hiệp bị hỏi "Redis chết thì sao", "RDB và AOF khác gì" và chưa trả lời chắc. Hiệp dùng Redis thật ở PlaySweeps (lock, cache), Quest Engine (RedLock), Altar (queue webhook), EIM (cache-manager, throttler). SA sẽ hỏi từ bản chất (vì sao nhanh) đến vận hành (mất dữ liệu bao nhiêu giây, failover ra sao).
+
+### C4.1 Vì sao Redis nhanh — và giới hạn của nó
+- Dữ liệu nằm **trong RAM**: đọc một key ~ micro giây, còn round-trip mạng trong cùng VNet ~0,2–1 ms. Vậy **mạng mới là chi phí chính**, không phải Redis.
+- **Một thread chạy lệnh (single-threaded command execution)**: mọi lệnh xếp hàng và chạy lần lượt. Hệ quả:
+  - Mỗi lệnh là **atomic** (nguyên tử): `INCR`, `SET NX`, `LPUSH` không bị chen ngang. Đây là lý do lock và counter dùng được.
+  - **Một lệnh chậm chặn tất cả**: `KEYS *` trên 10 triệu key, `HGETALL` một hash 1 triệu field, `DEL` một key lớn (dùng `UNLINK` thay thế), Lua script chạy lâu. Ví dụ: `KEYS user:*` mất 2 s → mọi request đang dùng Redis đứng 2 s → p99 của API nhảy vọt.
+  - Từ Redis 6 có **I/O threads** cho đọc/ghi socket, nhưng **lệnh vẫn chạy trên một thread**.
+- Mô hình mạng giống A1: **event loop + epoll** (I/O multiplexing), một thread phục vụ hàng chục nghìn kết nối.
+- Cách xác nhận: `SLOWLOG GET 10`, `INFO commandstats`, `redis-cli --bigkeys`, `LATENCY DOCTOR`; trên Azure Cache for Redis xem metric **Server Load**, CPU, connected clients.
+
+### C4.2 Kiểu dữ liệu và dùng vào việc gì
+| Kiểu | Lệnh | Dùng cho |
+|---|---|---|
+| String | `GET/SET/INCR/SET NX PX` | cache object JSON, counter, lock |
+| Hash | `HSET/HINCRBY` | object nhiều field (session, profile) |
+| List | `LPUSH/BRPOP` | queue đơn giản (Altar webhook) |
+| Set | `SADD/SISMEMBER` | đã xử lý chưa, tag |
+| Sorted set | `ZADD/ZRANGE/ZREVRANK` | **leaderboard**, rate limit cửa sổ trượt, job hẹn giờ |
+| Stream | `XADD/XREADGROUP/XACK` | queue có consumer group và ack |
+| Pub/Sub | `PUBLISH/SUBSCRIBE` | báo invalidate cache, SignalR backplane (**không lưu**, subscriber offline là mất) |
+
+- **TTL** (`EXPIRE`) cho mọi key cache; thiếu TTL → RAM đầy dần.
+- **Eviction policy** khi đầy `maxmemory`: `allkeys-lru` hợp cache thuần; `volatile-lru` chỉ xoá key có TTL; `noeviction` → lệnh ghi lỗi `OOM`. Redis dùng chung cho cache và lock mà để `allkeys-lru` → **lock có thể bị xoá** khi đầy RAM.
+
+### C4.3 Persistence: RDB vs AOF
+Redis trong RAM, tắt máy là mất, trừ khi bật persistence.
+| | **RDB (snapshot)** | **AOF (append-only file)** |
+|---|---|---|
+| Cách làm | Định kỳ `fork()` process con, ghi **toàn bộ dữ liệu** ra file `.rdb` (copy-on-write) | Ghi **mọi lệnh ghi** vào cuối file log |
+| Mất dữ liệu khi crash | Từ snapshot cuối đến lúc chết, ví dụ snapshot mỗi 15 phút → mất tới 15 phút | Theo `appendfsync`: `always` (gần như không mất, chậm), **`everysec` (mất ≤ ~1 s, mặc định)**, `no` (OS quyết định, ~30 s) |
+| Khởi động lại | Nhanh (nạp file nhị phân) | Chậm hơn (chạy lại lệnh); có **AOF rewrite** để nén |
+| Chi phí | `fork()` với dataset lớn → khựng vài chục–trăm ms, RAM tăng khi ghi nhiều trong lúc snapshot | Ghi đĩa liên tục, file lớn hơn |
+
+- Thực tế: bật **cả hai** (Redis 7 có AOF nhiều phần, base là RDB). Azure Cache for Redis: persistence RDB/AOF chỉ có ở tier **Premium** trở lên.
+- Câu Senior: **"Persistence reduces data loss on restart; it does not make Redis a system of record."** Tiền, số dư, trạng thái claim **không** để Redis làm nguồn sự thật.
+
+### C4.4 Sẵn sàng cao: replication, Sentinel, Cluster
+- **Replication**: primary nhận ghi, replica sao chép **bất đồng bộ (asynchronous)**. Primary chết khi replica chưa nhận kịp → **mất các ghi cuối**. `WAIT` chỉ giảm rủi ro, không biến Redis thành strongly consistent.
+- **Sentinel**: các tiến trình giám sát, đa số đồng ý primary chết → **promote replica**, báo client địa chỉ mới. Failover mất vài giây đến ~30 s; client phải reconnect.
+- **Cluster**: chia dữ liệu theo **16384 hash slot** (`CRC16(key) % 16384`) trên nhiều primary, mỗi primary có replica. Lệnh nhiều key (MGET, transaction, Lua) chỉ chạy nếu các key **cùng slot** → dùng **hash tag**: `{player:42}:balance`, `{player:42}:lock`.
+- Azure Cache for Redis Standard/Premium đã có primary + replica và tự failover; Premium/Enterprise có cluster.
+
+### C4.5 Redis chết thì sao? (câu Agapi hỏi)
+Trả lời theo **vai trò của Redis** trong hệ thống, không trả lời chung chung:
+| Redis dùng làm | Khi Redis chết | Thiết kế đúng |
+|---|---|---|
+| **Cache** | Mọi request rơi xuống DB → DB quá tải (**thundering herd**) | Fail-open: bắt lỗi, đọc DB, **timeout ngắn** (vd 200–500 ms), circuit breaker, giới hạn concurrency vào DB; L1 `IMemoryCache` ngắn hạn |
+| **Lock** | Không lấy được lock | **Fail-closed** cho thao tác tiền (trả 503, client retry), vì DB vẫn là trọng tài cuối (C3.5). Không "bỏ qua lock rồi chạy tiếp" |
+| **Session / Data Protection key** | Người dùng bị đăng xuất | Chấp nhận được hoặc dùng store bền hơn |
+| **Rate limiter** | Không đếm được | Chọn có ý thức: fail-open (cho qua) hay fail-closed; thường fail-open + giới hạn cục bộ |
+| **Queue (List)** | Mất message trong RAM chưa persist | Message quan trọng dùng Service Bus/SQS hoặc outbox (C5) |
+
+Timeline ví dụ (cache, không có bảo vệ): 10:00:00 Redis failover 20 s → 2.000 RPS rơi thẳng xuống SQL vốn chỉ chịu 300 RPS → connection pool cạn (A6/C9) → API timeout cả sau khi Redis sống lại, vì DB còn đang nghẹt. Có timeout ngắn + circuit breaker + request coalescing → DB chỉ nhận vài trăm RPS, hệ thống chậm nhưng sống.
+
+**StackExchange.Redis** (client .NET): dùng **một `ConnectionMultiplexer` singleton** cho cả app (tạo mới mỗi request → cạn socket, giống HttpClient A2); `AbortOnConnectFail=false` để tự reconnect; đặt `ConnectTimeout`, `SyncTimeout`/`AsyncTimeout`. Lỗi `RedisTimeoutException` hay đi kèm **thread pool starvation** (A4): xem `IOCP` và `WORKER` busy/min trong message lỗi.
+
+### C4.6 Distributed lock đúng cách
+```csharp
+var token = Guid.NewGuid().ToString();
+bool ok = await db.StringSetAsync($"lock:spin:{playerId}:{gameId}", token,
+                                  TimeSpan.FromSeconds(10), When.NotExists);
+if (!ok) return Results.Conflict();               // fail-fast như PlaySweeps TryLock
+try { /* việc cần làm, phải xong trước TTL */ }
+finally
+{
+    // nhả lock chỉ khi còn là của mình: kiểm tra và xoá trong một Lua script (atomic)
+    await db.ScriptEvaluateAsync(
+        "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
+        new RedisKey[] { $"lock:spin:{playerId}:{gameId}" }, new RedisValue[] { token });
+}
+```
+- Vì sao value ngẫu nhiên: A hết TTL, B lấy lock, A chạy xong `DEL` → **xoá nhầm lock của B**.
+- **RedLock**: lấy lock trên đa số (vd 3/5) node Redis **độc lập**, tính thời gian đã tốn. Kleppmann chỉ ra nó vẫn dựa vào giả định thời gian (GC pause, clock drift) → cần **fencing token** ở tầng lưu trữ (C3.5). Antirez (tác giả Redis) phản biện; Senior nêu được cả hai và kết luận: **lock để giảm tranh chấp, DB/constraint để đảm bảo đúng**.
+- Thư viện .NET: `RedLock.net`, `Medallion.Threading` (có cả SQL Server `sp_getapplock`, nếu đã có SQL thì cân nhắc dùng luôn).
+
+### C4.7 Cache: pattern và sự cố
+- **Cache-aside** (phổ biến nhất): đọc cache → miss → đọc DB → ghi cache có TTL. Khi ghi: **ghi DB rồi xoá key** (không cập nhật key). Lý do: hai request cập nhật song song có thể ghi giá trị cũ đè giá trị mới vào cache; xoá thì lần đọc sau lấy lại đúng.
+- Write-through / write-behind: biết khái niệm; write-behind có rủi ro mất dữ liệu.
+- **Cache stampede (dogpile)**: key hot (cấu hình game, bảng giá) hết hạn → 500 request cùng miss → 500 truy vấn giống nhau vào DB. Chống:
+  - **Request coalescing**: chỉ một request nạp lại, còn lại chờ kết quả. .NET 9 **`HybridCache`** có sẵn (L1 in-memory + L2 Redis + chống stampede); `Lazy<Task<T>>` per key nếu tự làm.
+  - **TTL jitter**: TTL 300 s ± ngẫu nhiên 30 s để không cùng hết hạn.
+  - Refresh sớm (stale-while-revalidate).
+- **Cache penetration**: hỏi key không tồn tại liên tục → luôn miss → cache cả kết quả "không có" với TTL ngắn.
+- **Hot key / big key**: một key bị hàng chục nghìn RPS → dồn vào một shard → L1 cache trong process; big key → tách nhỏ.
+- **Nhất quán nhiều instance**: L1 `IMemoryCache` mỗi instance một bản → invalidate qua **Pub/Sub** hoặc TTL ngắn; chấp nhận lệch vài giây, nói rõ dữ liệu nào chịu được lệch (catalog) và không chịu được (số dư).
+- **Không cache**: số dư, trạng thái thanh toán, quyền vừa bị thu hồi (hoặc TTL rất ngắn + invalidate).
+
+### C4.8 Gắn với dự án thật
+- **PlaySweeps**: Redis lock ở BE cho spin theo (player, game), deposit/redemption theo transaction, PrizeOut theo player; số dư thật do **Nexus** sở hữu và kiểm tra idempotency trong stored procedure. → Lock là lớp giảm tranh chấp; trọng tài là DB của Nexus.
+- **Quest Engine V2**: state ở Cosmos DB, **RedLock + idempotency key** cho claim. Nếu bị hỏi sâu: Cosmos DB có **ETag/optimistic concurrency** cho document → đó là chỗ đặt fencing tự nhiên. [Hiệp xác nhận: claim có kiểm ETag khi ghi Cosmos không]
+- **Altar (Go)**: webhook burn/mint qua **Redis queue** có tracking lỗi. Rủi ro: List không có ack → worker chết sau `RPOP` là mất. Cách tốt hơn: `BLMOVE` sang list "processing" (reliable queue) hoặc Streams + `XACK`. [Hiệp xác nhận cách đã làm]
+- **EIM (NestJS)**: cache-manager + throttler dùng Redis → rate limit chia sẻ giữa các instance (C3.6).
+
+### C4.9 Câu hỏi phỏng vấn & trả lời mẫu
+
+**Q1. Redis is single-threaded. Why is it still fast, and what can go wrong?**
+> Commands run on one thread against data in memory, so each command takes microseconds and there's no locking overhead, and the network layer uses an event loop with epoll, so one thread serves many connections. The cost of that design is that one slow command blocks everyone: a `KEYS *`, deleting a huge key, or a long Lua script can stall every client for seconds. So I ban `KEYS` in favour of `SCAN`, use `UNLINK` for big keys, keep values small, and watch `SLOWLOG` and server load.
+
+**Q2. What's the difference between RDB and AOF? Which would you use?**
+> RDB takes periodic snapshots of the whole dataset by forking the process, so restarts are fast but you lose everything since the last snapshot. AOF logs every write; with `everysec` you lose at most about a second, at the cost of more disk I/O and slower restarts. For a cache I may not need either; where losing data matters I'd enable both. But I wouldn't rely on persistence for money or anything that must not be lost: replication is asynchronous, so a failover can still drop recent writes. The database stays the system of record.
+
+**Q3. What happens to your system if Redis goes down?**
+> It depends on what Redis is doing. As a cache, requests fall back to the database, so I need short timeouts, a circuit breaker and request coalescing so the database isn't flooded. As a lock for money operations, I fail closed and return a retryable error, because correctness never depended on Redis alone: the database enforces it with unique keys and conditional updates. For sessions, users may need to log in again. For queues, important messages shouldn't live only in Redis; they go through a durable broker or an outbox.
+
+**Q4. How do you prevent a cache stampede?**
+> When a hot key expires, hundreds of requests miss at once and all hit the database. I make only one request rebuild the value while the others wait, which `HybridCache` in .NET 9 does out of the box. I also add jitter to TTLs so keys don't expire together, and for very hot data refresh it in the background before it expires.
+
+**Q5. How do you keep the cache consistent with the database?**
+> I use cache-aside: write to the database, then delete the cache key rather than updating it, so a concurrent writer can't leave stale data. Every key has a TTL as a safety net. With an in-memory cache on several instances I broadcast invalidations through Redis pub/sub or keep TTLs short. And I'm explicit about which data may be a few seconds stale, like a product catalogue, and which must never be cached, like a balance.
+
+**Q6. How would you implement a leaderboard?**
+> A Redis sorted set: `ZINCRBY` when a score changes, `ZREVRANGE` for the top N and `ZREVRANK` for a player's position, all O(log N). The sorted set is a read model; the scores come from the database or events, so I can rebuild it if Redis loses data.
+
+### C4.10 Tự kiểm tra
+1. Vì sao một lệnh `KEYS *` làm chậm cả hệ thống? Lệnh thay thế?
+2. RDB và AOF `everysec`: mỗi cái mất tối đa bao nhiêu dữ liệu khi crash?
+3. Replica được promote mà vẫn mất dữ liệu: vì sao?
+4. Redis chết: trả lời cho 3 vai trò cache, lock, queue.
+5. Vì sao nhả lock phải dùng Lua script so sánh value?
+6. Cache-aside: vì sao xoá key thay vì cập nhật key khi ghi?
+7. Ba cách chống cache stampede.
 
 ---
 
-## C5. Messaging, background job, outbox, saga, caching ⏳
+## C5. Messaging, background job, outbox và saga
 
-> ⏳ **Chưa viết lại sâu.** Dưới đây là nội dung bản cũ (số tham chiếu section bên trong là số bản cũ, xem bảng đối chiếu ở 0.2). Claude sẽ viết lại trước khi Hiệp học tới.
+**Vì sao cần.** Ops Hub có nhiều việc không nên chạy trong request: sinh PDF hợp đồng, gửi SMS/email nhắc giao hàng, đồng bộ sang kế toán, nhận webhook thanh toán. SA sẽ hỏi "lưu DB rồi gửi message mà crash giữa chừng thì sao", "message đến hai lần thì sao", "job chạy trên 5 instance thì sao". Hiệp có kinh nghiệm thật: Azure Service Bus và Event Hub ở PlaySweeps (cấu hình và vận hành, **không tự setup**), Service Bus `-cmd` queue + topic event ở Joblogic, Redis queue ở Altar, `@nestjs/schedule` ở EIM. Caching đã chuyển sang C4.7.
 
-### C5.1 Messaging
-- **Vì sao queue**: tách tải (san đỉnh), việc chậm ra khỏi request, retry, tách hệ thống.
-- **At-least-once** (phổ biến) → message có thể đến 2 lần → **consumer idempotent**. At-most-once (có thể mất). Exactly-once thực tế = at-least-once + idempotent.
-- **DLQ**: message lỗi quá N lần → hàng chờ chết → alert, xem, sửa, đẩy lại.
-- **Competing consumers** (nhiều worker chia việc một queue) vs **pub/sub** (mỗi subscriber nhận một bản).
-- **Thứ tự**: Service Bus session / SQS FIFO message group theo key (vd. orderId) — một consumer mỗi lúc cho cùng key. SessionId **không** chống trùng.
-- **Poison message**: luôn lỗi → DLQ, không retry vô hạn.
-- **Transactional Outbox**: ghi dữ liệu nghiệp vụ + bản ghi outbox **trong cùng transaction**; relay đọc outbox gửi đi (at-least-once) → consumer idempotent. Giải quyết "lưu DB xong, gửi message thì crash" (hoặc ngược lại). **Không phải Mediator** (MediatR là in-process).
-- **Inbox**: bên nhận lưu message id đã xử lý (UNIQUE) để chống trùng.
-- **Saga**: chuỗi transaction cục bộ + **compensation** khi một bước lỗi (orchestration vs choreography). Ví dụ: tạo order → giữ inventory → thu deposit; thu tiền lỗi → nhả inventory, huỷ order.
-- **Distributed transaction (2PC)**: tránh trong microservices (khoá lâu, phụ thuộc coordinator) → outbox + saga.
-- Thư viện .NET: MassTransit, NServiceBus, Wolverine, Rebus.
+### C5.1 Vì sao dùng queue — và cái giá
+- **Lợi**: san tải đỉnh (load leveling: 1.000 đơn trong 1 phút, worker xử lý 100/phút vẫn xong, không sập), đưa việc chậm ra khỏi request (trả 202), **retry** tự động, tách hệ thống (bên nhận chết thì message chờ, không mất).
+- **Giá**: **eventual consistency** (người dùng chưa thấy kết quả ngay), message **trùng**, **sai thứ tự**, debug khó hơn (cần correlation id xuyên suốt, C9), thêm hạ tầng phải giám sát (độ dài queue, tuổi message cũ nhất, DLQ).
+- Ví dụ đời thường: quầy gọi món đưa số thứ tự. Bếp làm theo sức, khách không đứng chặn quầy; nhưng khách phải chờ và đôi khi bếp làm trùng một món.
 
-### C5.2 Background job trong ASP.NET Core
-- `BackgroundService` + `Channel<T>` cho việc nội bộ đơn giản (mất khi restart nếu không bền).
-- Bền / định kỳ: **Hangfire**, Quartz.NET, hoặc queue (SQS) + worker, EventBridge Scheduler.
-- Mỗi lần xử lý tạo **scope** mới (DbContext Scoped).
-- Nhiều instance → job định kỳ chạy N lần → khoá phân tán/leader election hoặc scheduler trung tâm; job **idempotent**.
-- Graceful shutdown qua `stoppingToken`.
+### C5.2 Ngữ nghĩa giao nhận (delivery semantics)
+| | Nghĩa | Khi nào xảy ra |
+|---|---|---|
+| **At-most-once** | Có thể mất, không trùng | Ack trước khi xử lý |
+| **At-least-once** (mặc định của Service Bus, SQS, RabbitMQ) | Không mất, **có thể trùng** | Xử lý xong rồi mới ack; worker chết trước khi ack → message hiện lại |
+| **Exactly-once** | Thực tế = **at-least-once + consumer idempotent** | Không broker nào đảm bảo "hiệu ứng" đúng một lần với hệ thống bên ngoài |
 
-### C5.3 Caching
-- **Vì sao**: giảm latency, giảm tải DB/API ngoài. **Cái giá**: dữ liệu cũ, invalidation khó, bộ nhớ.
-- **Cache-aside** (đọc cache → miss thì đọc DB → ghi cache) là phổ biến; write-through; TTL.
-- **Cục bộ** `IMemoryCache` (nhanh, mỗi instance riêng) vs **phân tán** Redis/`IDistributedCache` (chung) vs **HybridCache** (.NET 9: L1 + L2 + chống stampede).
-- **Cache stampede**: key hết hạn, ngàn request cùng đi DB → lock theo key/single-flight, TTL có jitter, refresh trước hạn.
-- **Invalidation**: xoá key khi dữ liệu đổi (event), hoặc TTL ngắn; nhiều instance cục bộ → pub/sub để xoá.
-- **Key có tenant** (`tenant:{id}:taxrate:{zip}`).
-- **Không cache**: số dư, trạng thái thanh toán cần chính xác; dữ liệu nhạy cảm không mã hoá.
-- Cache nên cho Ops Hub: bảng giá/catalog, mức thuế theo zip (TTL), cấu hình tenant, template.
-- HTTP caching: `Cache-Control`, ETag/304, CDN cho static.
+Cơ chế cụ thể:
+- **Service Bus PeekLock**: nhận message → bị khoá (lock duration mặc định 1 phút, tối đa 5 phút) → `Complete` thì xoá; `Abandon` hoặc **hết lock** thì giao lại, `DeliveryCount++`; vượt `MaxDeliveryCount` (mặc định 10) → **DLQ**.
+- **SQS**: `ReceiveMessage` → ẩn trong **visibility timeout** (mặc định 30 s) → `DeleteMessage` thì xoá; hết hạn chưa xoá → hiện lại; vượt `maxReceiveCount` của redrive policy → DLQ.
+- Timeline trùng điển hình: worker xử lý mất 70 s, lock 60 s → t=60 s lock hết, worker khác nhận và xử lý → hai lần gửi SMS. Sửa: tự gia hạn lock (Service Bus processor có `MaxAutoLockRenewalDuration`; SQS `ChangeMessageVisibility`) **và** consumer idempotent.
 
-### C5.4 Câu hỏi luyện
-1. Why use a message queue? What problems does it introduce?
-2. What's at-least-once delivery? How do you handle duplicates?
-3. What's a dead-letter queue? What do you do with messages in it?
-4. Explain the Outbox pattern. What problem does it solve?
-5. Explain the Saga pattern with an order example.
-6. Competing consumers vs pub/sub?
-7. How do you keep message ordering per order?
-8. How would you implement a background worker in ASP.NET Core?
-9. A scheduled job runs on every instance. How do you make it run once?
-10. How would you cache data in a multi-instance API?
-11. What's a cache stampede and how do you prevent it?
-12. What would you cache in the Ops Hub, and what would you never cache?
+### C5.3 Consumer idempotent: inbox
+```csharp
+public async Task Handle(PaymentReceived msg, CancellationToken ct)
+{
+    await using var tx = await _db.Database.BeginTransactionAsync(ct);
+    _db.InboxMessages.Add(new InboxMessage(msg.MessageId, "payment-handler")); // UNIQUE(MessageId, Consumer)
+    _db.Payments.Add(Payment.From(msg));
+    try { await _db.SaveChangesAsync(ct); await tx.CommitAsync(ct); }
+    catch (DbUpdateException e) when (e.InnerException is SqlException { Number: 2627 or 2601 })
+    {
+        return; // đã xử lý rồi → ack, không làm lại
+    }
+}
+```
+- Cùng nguyên tắc C3.2: **UNIQUE trong cùng transaction với tác dụng**, không "kiểm tra có chưa" riêng.
+- Tác dụng ra ngoài (gửi SMS qua Twilio) không nằm trong transaction được → truyền idempotency key cho bên kia nếu họ hỗ trợ, hoặc ghi trạng thái "đang gửi/đã gửi" và chấp nhận rủi ro trùng rất nhỏ (với SMS chấp nhận được; với tiền thì không).
+
+### C5.4 Dual write và Transactional Outbox
+**Vấn đề (dual write)**: hai hệ thống (DB và broker) không chung transaction.
+```
+SaveChanges()      ✓  đơn hàng đã lưu
+Publish(OrderPlaced)  ✗  process bị kill / broker timeout
+→ đơn có trong DB, không ai sinh hợp đồng, không ai gửi email
+```
+Đảo thứ tự cũng hỏng: message đi rồi, DB rollback → bên nhận xử lý đơn không tồn tại.
+
+**Outbox**:
+```csharp
+await using var tx = await _db.Database.BeginTransactionAsync(ct);
+_db.Orders.Add(order);
+_db.OutboxMessages.Add(new OutboxMessage(Guid.NewGuid(), "OrderPlaced", JsonSerializer.Serialize(evt), DateTime.UtcNow));
+await _db.SaveChangesAsync(ct);
+await tx.CommitAsync(ct);   // hoặc cả hai, hoặc không gì cả
+```
+- **Relay** (BackgroundService hoặc Function) đọc `OutboxMessages WHERE ProcessedAt IS NULL ORDER BY Id`, publish, đánh dấu đã gửi. Crash sau publish trước khi đánh dấu → gửi lại → **at-least-once** → consumer phải idempotent (C5.3). Message id ổn định (Guid của bản ghi outbox) để bên nhận chống trùng.
+- Nhiều instance relay: `SELECT TOP (100) ... WITH (UPDLOCK, READPAST, ROWLOCK)` để mỗi instance lấy lô khác nhau (A6), hoặc chỉ một relay.
+- Dọn bảng outbox định kỳ; index trên `ProcessedAt`.
+- Thay thế: **CDC (Change Data Capture)**/Debezium đọc transaction log. Thư viện có sẵn: **MassTransit** (EF Core outbox), NServiceBus, Wolverine.
+- **Không nhầm**: MediatR `Publish` là gọi hàm **trong process**, không bền, không phải outbox.
+
+### C5.5 Mô hình phân phối và thứ tự
+- **Queue + competing consumers**: nhiều worker chia việc; mỗi message một worker xử lý → scale ngang.
+- **Topic + subscription (pub/sub)**: mỗi subscription nhận một bản (OrderPlaced → subscription "contracts", "notifications", "accounting"). Joblogic: queue `-cmd` cho lệnh, topic cho event.
+- **Command vs Event**: command "SendContract" (một người nhận, có thể từ chối); event "OrderPlaced" (sự việc đã xảy ra, nhiều người nghe, đặt tên thì quá khứ).
+- **Thứ tự**: queue thường **không** đảm bảo thứ tự khi có nhiều consumer và retry. Cần thứ tự theo đối tượng → **Service Bus session** (`SessionId = orderId`) hoặc **SQS FIFO message group** → mỗi khoá một consumer tại một lúc. Session **không chống trùng**; dedup của SQS FIFO chỉ trong **5 phút** → vẫn cần inbox.
+- Thay vì phụ thuộc thứ tự: gửi **version/sequence** trong message, bên nhận bỏ qua bản cũ hơn bản đã áp dụng.
+- **Event Hub/Kafka** khác queue: là **log có partition**, giữ message theo thời gian, consumer tự giữ **offset**, đọc lại được; thứ tự trong một partition. Hợp telemetry, luồng sự kiện lớn (PlaySweeps dùng Event Hub).
+
+### C5.6 DLQ và poison message
+- Poison message: luôn lỗi (JSON sai, dữ liệu vi phạm rule) → retry vô hạn chỉ tốn tài nguyên và chặn hàng → sau N lần vào **DLQ**.
+- Phân loại lỗi: **tạm thời** (timeout, 503, deadlock 1205) → retry có backoff; **vĩnh viễn** (validation, 404 nghiệp vụ) → DLQ ngay, không retry.
+- Vận hành DLQ: **alert khi DLQ > 0**, xem nội dung + lý do (`DeadLetterReason`), sửa code/dữ liệu, **redrive** (đẩy lại). Message cần idempotent vì sẽ được xử lý lại.
+
+### C5.7 Saga: giao dịch dài qua nhiều hệ thống
+Không có transaction ACID xuyên dịch vụ (2PC giữ khoá lâu, phụ thuộc coordinator, cloud broker không hỗ trợ). Saga = **chuỗi transaction cục bộ + bước bù (compensation)**.
+
+Ví dụ Ops Hub (đặt nhà kho):
+```
+1. Tạo đơn (Pending)              ← bù: huỷ đơn
+2. Giữ slot sản xuất              ← bù: nhả slot
+3. Thu đặt cọc qua cổng thanh toán ← bù: hoàn tiền
+4. Xác nhận đơn (Confirmed)
+Bước 3 lỗi → chạy bù 2 rồi 1 → đơn Cancelled, báo khách
+```
+- **Orchestration**: một bộ điều phối (state machine lưu DB, MassTransit saga, Durable Functions, AWS Step Functions) gọi từng bước → dễ theo dõi trạng thái, dễ debug. **Choreography**: mỗi service nghe event và phát event tiếp → ít phụ thuộc, nhưng luồng khó nhìn khi nhiều bước. Chọn orchestration khi có tiền và nhiều bước.
+- Bước bù **không phải rollback**: tiền đã thu thì phải **hoàn**, email đã gửi thì gửi email huỷ. Bước bù cũng phải **idempotent và retry được**.
+- Trạng thái trung gian nhìn thấy được (đơn "Pending payment") → UI và báo cáo phải hiểu trạng thái đó.
+- Trong **một** DB (modular monolith) thì dùng transaction thường, không cần saga.
+
+### C5.8 Background job trong ASP.NET Core
+- `BackgroundService` + `Channel<T>` (bounded): việc nội bộ nhẹ (gửi log, xử lý ảnh). **Mất khi restart** → không dùng cho việc phải xong.
+- Mỗi lần xử lý **tạo scope mới** (`IServiceScopeFactory.CreateAsyncScope()`), vì `DbContext` là Scoped còn hosted service là Singleton (captive dependency, B1).
+- Tôn trọng `stoppingToken`; xử lý xong message đang làm trước khi tắt (graceful shutdown, `HostOptions.ShutdownTimeout`).
+- Exception chưa bắt trong `ExecuteAsync` ở .NET 6+ **dừng cả host** (mặc định `BackgroundServiceExceptionBehavior.StopHost`) → bọc try/catch trong vòng lặp.
+- Việc bền/định kỳ: **Hangfire** (lưu job trong SQL, retry, dashboard), Quartz.NET (cluster mode), hoặc queue + worker riêng, Azure Functions Timer, AWS EventBridge Scheduler.
+- **Job định kỳ trên 5 instance chạy 5 lần**: dùng scheduler có khoá (Hangfire, Quartz clustered, `sp_getapplock`), hoặc tách worker 1 instance, hoặc scheduler bên ngoài gửi message vào queue → competing consumers. Dù cách nào, job vẫn phải **idempotent** (chạy lại không hại).
+- Job hàng loạt (gửi nhắc 5.000 đơn): chia lô, lưu checkpoint, mỗi đơn một message để lỗi đơn nào retry đơn đó.
+
+### C5.9 Câu hỏi phỏng vấn & trả lời mẫu
+
+**Q1. Why would you put a queue between two services? What does it cost?**
+> It decouples them: the producer doesn't wait, spikes are absorbed because consumers work at their own pace, failures are retried, and if the consumer is down messages wait instead of being lost. The cost is eventual consistency, duplicate and out-of-order delivery, and more moving parts to monitor — queue length, age of the oldest message and the dead-letter queue — plus a correlation ID so a request can be traced across the hop.
+
+**Q2. You save an order and then publish an event. What can go wrong and how do you fix it?**
+> That's the dual write problem: the database and the broker don't share a transaction, so a crash between the two leaves an order with no event, or an event for an order that was rolled back. I'd use a transactional outbox: write the order and an outbox row in the same transaction, and have a relay publish outbox rows and mark them sent. The relay can publish twice if it crashes after sending, so consumers deduplicate on the message ID with a unique constraint.
+
+**Q3. How do you get exactly-once processing?**
+> Brokers give at-least-once delivery, so in practice exactly-once means at-least-once plus an idempotent consumer. In the same transaction as the work I insert the message ID into an inbox table with a unique constraint; a duplicate violates it and I acknowledge without doing anything. For side effects outside my database I pass an idempotency key to the provider if it supports one.
+
+**Q4. A message keeps failing. What happens and what do you do?**
+> After the maximum delivery count it goes to the dead-letter queue, so it doesn't block the queue or retry forever. I separate transient errors, which get retries with backoff, from permanent ones like invalid data, which should dead-letter immediately. An alert fires when the DLQ isn't empty; we look at the reason, fix the code or data, and redrive the message, which is safe because the handler is idempotent.
+
+**Q5. How do you keep events for the same order in order?**
+> I avoid relying on global ordering. If order matters per entity, I use Service Bus sessions or SQS FIFO message groups keyed by order ID, so only one consumer handles a given order at a time. I also include a version in each event so the consumer can ignore anything older than what it has already applied. Sessions don't remove duplicates, so the consumer stays idempotent.
+
+**Q6. Explain the saga pattern with an example.**
+> A saga replaces a distributed transaction with a sequence of local transactions, each with a compensating action. Booking a shed: create the order as pending, reserve a production slot, take the deposit, then confirm. If the payment fails, we release the slot and cancel the order. Compensations aren't rollbacks — a captured payment needs a refund — so they must be idempotent and retryable. With money involved I prefer orchestration, a state machine persisted in the database, because the current state of each order is visible and easy to debug.
+
+**Q7. A scheduled job runs on every instance. How do you make it run once?**
+> Use a scheduler that coordinates through shared storage, like Hangfire or clustered Quartz, take an application lock with `sp_getapplock`, or move the trigger out of the web app into a single scheduler that enqueues work for competing consumers. Whichever I pick, the job itself stays idempotent, because a lock can be lost and a job can be retried.
+
+**Q8. How would you implement a background worker in ASP.NET Core?**
+> A `BackgroundService` reading from a bounded `Channel` for lightweight in-process work, creating a new DI scope per item because `DbContext` is scoped, wrapping the loop in try/catch because an unhandled exception stops the host, and honouring the stopping token for graceful shutdown. For anything that must survive a restart I use a durable queue or Hangfire instead, because an in-memory channel loses its items when the process stops.
+
+### C5.10 Tự kiểm tra
+1. Vẽ timeline làm một message bị xử lý hai lần trên Service Bus/SQS.
+2. Dual write là gì? Vì sao đảo thứ tự "gửi trước, lưu sau" cũng hỏng?
+3. Outbox relay crash sau khi publish: chuyện gì xảy ra, ai lo?
+4. Session/message group giải quyết gì và không giải quyết gì?
+5. Bước bù của "thu đặt cọc" là gì? Vì sao không gọi là rollback?
+6. Ba cách để job định kỳ chạy một lần khi có 5 instance.
+7. Lỗi nào retry, lỗi nào vào DLQ ngay?
 
 ---
 
-## C6. Scale và load balancer ⏳
+## C6. Scale và load balancer
 
-> ⏳ **Chưa viết lại sâu.** Nội dung cũ nằm ở B5 mục "Scale & sẵn sàng". Sẽ viết lại sâu: L4/L7, các thuật toán phân phối (round robin, weighted, least connections, least response time, IP hash, consistent hashing), sticky session, health check, connection draining, CAP.
+**Vì sao cần.** JD nhấn "stable and scalable as it grows". Ở Agapi Hiệp bị hỏi các thuật toán load balancer và chỉ kể được round robin. SA muốn nghe: thuật toán nào hợp tải nào, cái gì làm hỏng việc scale ngang (state cục bộ, DB), và đo được cụ thể. Hiệp chưa tự vận hành load balancer; trải nghiệm thật là app chạy nhiều instance trên Azure (App Service/Functions) và Kubernetes qua Helm values ở PlaySweeps (chỉ sửa config). Nói đúng mức đó.
+
+### C6.1 Các khái niệm hay bị trộn
+- **Performance**: nhanh với tải hiện tại (p50/p99, C9). **Scalability**: thêm tài nguyên thì chịu được tải tăng gần tương ứng. **Availability**: % thời gian phục vụ được (99,9% ≈ 8,8 giờ ngừng/năm; 99,99% ≈ 53 phút/năm). **Reliability**: làm **đúng**, không mất dữ liệu.
+- **Vertical** (máy to hơn): đơn giản, không đổi code, nhưng có trần, đắt dần, thường phải restart. **Horizontal** (thêm instance): gần như không trần ở tầng web, chịu được một máy chết, nhưng **đòi hỏi stateless**.
+- **Little's Law** (A1): số request đang xử lý = RPS × thời gian xử lý. 500 RPS × 0,2 s = 100 request đồng thời. Latency tăng lên 2 s → 1.000 request đồng thời ở cùng RPS → cạn thread/connection pool. Vì vậy **giảm latency cũng là scale**.
+
+### C6.2 Điều kiện để scale ngang (stateless web tier)
+Nối với checklist C3.6:
+- Session, cache dùng chung → Redis; file upload → S3/Blob; **Data Protection key ring** dùng chung (C1); rate limit dùng chung.
+- Job định kỳ không chạy N lần (C5.8); lock không nằm trong RAM.
+- **Nút cổ chai dời xuống DB**: 10 instance × pool 100 connection = 1.000 connection tới một SQL Server → DB nghẹt trước. Thêm instance không giúp nếu DB đã đầy; cần index/query (A5), cache (C4), read replica, hoặc giảm `Max Pool Size`.
+- Thứ tự gỡ nút thắt thường gặp: **query/index → cache → background job/queue → scale web ngang → read replica → partition/shard** (shard là cuối cùng vì rất đắt).
+
+### C6.3 Load balancer: L4 vs L7
+| | **L4 (transport)** | **L7 (application)** |
+|---|---|---|
+| Nhìn thấy | IP, port, TCP/UDP | HTTP: URL, header, cookie, host |
+| Làm được | Chuyển kết nối, rất nhanh | Route theo path/host, **TLS termination**, sticky cookie, WAF, rewrite, retry, gzip |
+| Ví dụ | AWS **NLB**, Azure Load Balancer | AWS **ALB**, Azure **Application Gateway**, Front Door, NGINX, YARP, Envoy |
+- L7 với HTTP/2 hoặc gRPC: một kết nối mang nhiều request → L4 chỉ cân bằng theo **kết nối** nên lệch; L7 cân bằng theo **request**.
+- Sau L7, app thấy IP của LB → dùng `X-Forwarded-For`/`X-Forwarded-Proto` + `UseForwardedHeaders` (chỉ tin proxy đã biết) để lấy IP thật và scheme https (redirect URL, cookie Secure).
+
+### C6.4 Các thuật toán phân phối (phần Agapi hỏi)
+| Thuật toán | Cách chọn backend | Hợp khi | Hạn chế |
+|---|---|---|---|
+| **Round robin** | Lần lượt A, B, C, A… | Request đồng đều, máy giống nhau | Không biết máy nào đang bận; request nặng nhẹ lẫn lộn thì lệch |
+| **Weighted round robin** | Theo trọng số (A:3, B:1) | Máy khác cấu hình; **canary** (10% sang bản mới) | Trọng số tĩnh |
+| **Least connections** | Máy đang có ít kết nối mở nhất | Request dài, thời gian không đều (upload, sinh PDF, WebSocket/SignalR) | Kết nối ít chưa chắc tải ít |
+| **Least response time / least outstanding requests** | Máy trả lời nhanh nhất / ít request chưa xong nhất (ALB có "least outstanding requests") | Máy chậm do GC, noisy neighbor → tự né | Cần đo liên tục; dễ dồn hết vào máy vừa khởi động "trống" |
+| **IP hash** | `hash(client IP) % N` | Cần cùng client về cùng máy mà không có cookie | Nhiều người sau một NAT công ty dồn vào một máy; thêm/bớt máy đổi gần hết mapping |
+| **Consistent hashing** | Máy và key đặt trên một vòng hash; key đi về máy kế tiếp theo chiều kim đồng hồ | Cache phân tán, shard: thêm/bớt một máy chỉ dời ~1/N key | Cần virtual nodes để chia đều |
+| **Random / power of two choices** | Chọn ngẫu nhiên 2 máy, lấy máy ít tải hơn | LB phân tán nhiều node, không chia sẻ trạng thái | Ít người hỏi, nói được là điểm cộng |
+
+Ví dụ con số: 3 instance, round robin, 1/10 request là sinh PDF mất 8 s, còn lại 50 ms. Do xếp lần lượt, một instance có thể giữ 5 job PDF cùng lúc trong khi instance khác rảnh → p99 của request nhanh trên instance đó tăng vọt. Least outstanding requests giảm lệch; **cách tận gốc** là đưa PDF ra background worker (C5) để web chỉ còn request ngắn, đồng đều.
+
+### C6.5 Sticky session (session affinity)
+- LB gắn cookie (ALB `AWSALB`, App Service `ARRAffinity`) để cùng người dùng luôn về cùng instance.
+- Dùng khi app giữ state trong RAM (session in-proc, SignalR không có backplane).
+- Nhược: tải lệch, instance chết thì người dùng mất session, autoscale không dồn tải sang máy mới, deploy khó. **Ưu tiên bỏ sticky**: session ra Redis, SignalR dùng **Azure SignalR Service** hoặc Redis backplane.
+
+### C6.6 Health check, draining, autoscale
+- **Health check**: LB gọi `/health` mỗi vài giây; fail N lần liên tiếp → gỡ khỏi pool. Phân biệt (B1): **liveness** (process còn sống, không kiểm DB) và **readiness** (sẵn sàng nhận traffic: DB, cache kết nối được). Readiness kiểm DB mà DB chập chờn → **tất cả** instance cùng bị gỡ → sập toàn bộ; nên kiểm nhẹ, có timeout, cân nhắc chỉ kiểm phụ thuộc bắt buộc.
+- **Connection draining / deregistration delay**: khi gỡ instance (deploy, scale in), LB ngừng gửi request **mới** nhưng chờ request đang chạy xong (ALB mặc định 300 s). App phải xử lý `SIGTERM`: ngừng nhận việc, làm xong việc dở (`HostOptions.ShutdownTimeout`).
+- **Autoscale**: theo CPU, RPS mỗi instance, độ dài queue (worker). Có **cooldown** để không bật tắt liên tục. Instance mới cần thời gian khởi động (JIT, warm-up cache, A3) → scale **trước** đỉnh nếu biết (lịch), hoặc giữ min instance.
+- Sẵn sàng: ≥ 2 instance ở **2 Availability Zone**; một AZ mất vẫn chạy.
+
+### C6.7 Scale tầng dữ liệu
+- **Read replica**: báo cáo, dashboard đọc từ replica. Replica **trễ (replication lag)** vài ms đến vài giây → **read-your-writes**: người vừa sửa đơn rồi mở lại thấy dữ liệu cũ → đọc lại từ primary ngay sau khi ghi, hoặc chỉ dùng replica cho màn hình chịu được trễ.
+- **Partition/shard**: chia dữ liệu theo khoá (tenant, khu vực). Joblogic: SQL Server **shard theo tenant**, middleware lấy shard key từ License (đã đọc kiến trúc). Khó: truy vấn xuyên shard, cân bằng lại, tenant lớn bất thường.
+- **CQRS read model**: bảng/denormalized view hoặc search index cho màn hình đọc nặng, cập nhật qua event (eventual).
+
+### C6.8 CAP và PACELC (nói thực tế, không lý thuyết suông)
+- **CAP**: khi **mạng phân vùng (P)** thì phải chọn **C** (từ chối để không trả sai) hoặc **A** (vẫn trả lời, có thể cũ/xung đột). Không có hệ phân tán nào "bỏ P".
+- **PACELC**: khi không có phân vùng (**E**lse), vẫn phải đánh đổi **L**atency và **C**onsistency (ví dụ Cosmos DB có 5 mức consistency: Strong, Bounded staleness, Session, Consistent prefix, Eventual; mặc định **Session**).
+- Áp vào nghiệp vụ: **tiền, tồn slot sản xuất** → chọn C (từ chối/chờ còn hơn bán quá). **Catalog, dashboard, đếm view** → chọn A.
+
+### C6.9 Câu hỏi phỏng vấn & trả lời mẫu
+
+**Q1. What load-balancing algorithms do you know, and when would you use each?**
+> Round robin is fine when requests are uniform and servers identical. Weighted round robin handles different server sizes and canary releases, sending say 10% to a new version. Least connections or least outstanding requests suits uneven request times, like PDF generation or long-lived SignalR connections, because it avoids piling work onto a busy server. IP hash or a sticky cookie keeps a client on one server when the app holds state in memory, though I'd rather remove that state. Consistent hashing is for caches and shards, where adding a node should move only about one Nth of the keys.
+
+**Q2. What's the difference between an L4 and an L7 load balancer?**
+> An L4 balancer sees IPs and ports and forwards TCP connections, so it's very fast but can't look inside the request. An L7 balancer understands HTTP: it routes by host or path, terminates TLS, can do cookie affinity, a WAF and retries. With HTTP/2 or gRPC, many requests share one connection, so you need L7 to balance per request. On AWS that's NLB versus ALB.
+
+**Q3. How do you make an ASP.NET Core app scale horizontally?**
+> Keep the web tier stateless: sessions and shared cache in Redis, files in S3 or Blob storage, a shared Data Protection key ring so cookies work on any instance, and no in-memory locks or rate limits that only one instance sees. Scheduled jobs must run once, not on every instance. Then I check the database, because ten instances with a pool of 100 connections each can overwhelm it; adding instances only helps if the bottleneck is the web tier.
+
+**Q4. What do health checks and connection draining do during a deployment?**
+> The load balancer polls a readiness endpoint and stops routing to an instance that fails or is being removed. Draining lets in-flight requests finish before the instance is stopped, and the app handles SIGTERM by refusing new work and finishing what it has. I keep liveness separate from readiness, and keep readiness checks light, because if every instance fails readiness when the database blips, the load balancer removes all of them and a slowdown becomes an outage.
+
+**Q5. Why avoid sticky sessions?**
+> They tie a user to one instance, so load becomes uneven, a crash logs those users out, and newly scaled-out instances get no existing traffic. I use them only as a temporary measure for legacy in-memory state, and move that state to Redis or use a SignalR backplane or Azure SignalR Service.
+
+**Q6. Reports are slowing down the main database. What would you do?**
+> First check the queries and indexes, since that's often the cheapest fix. Then move reporting to a read replica, accepting a few seconds of replication lag, or build a pre-aggregated read model updated by events. Screens where a user expects to see their own change immediately keep reading from the primary.
+
+**Q7. Explain CAP in practical terms.**
+> During a network partition a distributed system has to choose between refusing requests to stay consistent or answering with possibly stale data to stay available. For payments and production capacity I'd choose consistency — better to ask the user to retry than to overbook. For a product catalogue or a dashboard, availability is fine. PACELC adds that even without a partition you trade latency for consistency, which is why Cosmos DB offers several consistency levels.
+
+### C6.10 Tự kiểm tra
+1. Kể 6 thuật toán LB, mỗi cái một tình huống hợp.
+2. Vì sao round robin làm p99 tăng khi có request PDF 8 s? Cách tận gốc?
+3. L4 vs L7: vì sao gRPC cần L7?
+4. 10 instance × Max Pool Size 100: vấn đề gì?
+5. Readiness check kiểm DB có rủi ro gì?
+6. Read replica gây lỗi "vừa sửa xong mở lại thấy cũ": tên vấn đề và cách xử lý?
+7. Consistent hashing giải quyết gì so với `hash % N`?
 
 ---
 
-## C7. SQL vs NoSQL ⏳
+## C7. SQL vs NoSQL (relational vs document)
 
-> ⏳ **Chưa viết lại sâu.** Chưa có nội dung cũ. Sẽ viết: mô hình dữ liệu document vs quan hệ, ACID vs BASE, khi nào MongoDB/Cosmos DB, khi nào SQL, ví dụ PlaySweeps (Cosmos DB cho quest state), Joblogic (MongoDB cho audit).
+**Vì sao cần.** Agapi hỏi "Mongo vs SQL, khi nào dùng cái nào". Câu trả lời yếu là "NoSQL nhanh hơn, scale tốt hơn". SA muốn nghe theo **mô hình truy cập (access pattern)**, **ranh giới transaction** và **cái giá vận hành**. Hiệp có ví dụ thật: SQL Server ở PlaySweeps và Joblogic, **Cosmos DB** cho quest state (Quest Engine V2), **MongoDB** ở Altar (Go) và Joblogic (audit, workflow, offline visit, GPS theo kiến trúc đã đọc), MySQL ở EIM.
+
+### C7.1 Bản chất hai mô hình
+- **Relational**: dữ liệu chuẩn hoá (normalized) thành bảng, liên kết bằng khoá ngoại; **schema-on-write** (DB ép cấu trúc khi ghi); truy vấn tự do bằng SQL + JOIN; **ACID** nhiều bảng trong một transaction. Mạnh khi **quan hệ nhiều–nhiều, truy vấn chưa biết trước, ràng buộc chặt** (tiền, tồn kho).
+- **Document** (MongoDB, Cosmos DB): một document JSON/BSON chứa **cả cụm dữ liệu đọc cùng nhau** (aggregate); **schema-on-read** (mỗi document có thể khác); ghi/đọc một document là atomic. Mạnh khi **truy cập theo một khoá, cấu trúc lồng nhau, thay đổi schema thường xuyên, scale ngang theo partition**.
+- Ví dụ: hợp đồng với các dòng sản phẩm, tuỳ chọn (cửa, cửa sổ, màu), phụ phí. Relational: `Orders`, `OrderLines`, `LineOptions`, JOIN để đọc. Document: một document `order` chứa mảng `lines[]`, mỗi line có `options[]`, đọc một lần. Nhưng báo cáo "doanh thu theo loại cửa sổ trong quý, theo cửa hàng" thì SQL làm dễ hơn hẳn.
+- Các loại NoSQL khác: **key-value** (Redis, DynamoDB), **wide-column** (Cassandra), **graph** (Neo4j), **search** (Elasticsearch/Azure AI Search). "NoSQL" không phải một thứ.
+
+### C7.2 ACID vs BASE — và thực tế hiện nay
+- **ACID**: Atomicity, Consistency (ràng buộc), Isolation (A6), Durability.
+- **BASE**: Basically Available, Soft state, Eventual consistency, mô tả các hệ ưu tiên sẵn sàng.
+- Thực tế 2026: ranh giới mờ. **MongoDB** có multi-document transaction từ 4.0 (replica set) và 4.2 (sharded), nhưng tốn hơn và có giới hạn thời gian (mặc định 60 s). **Cosmos DB** có transaction **trong cùng logical partition** (stored procedure, transactional batch), **không** xuyên partition. SQL Server có JSON (`OPENJSON`, `JSON_VALUE`; SQL Server 2025/Azure SQL có kiểu `json`).
+- Câu Senior: **"The real question is where your transaction boundaries are."** Nếu nghiệp vụ cần cập nhật nguyên tử nhiều thực thể độc lập (trừ tiền ví A, cộng ví B, ghi ledger), document DB sẽ đẩy bạn vào saga hoặc transaction đắt.
+
+### C7.3 Thiết kế document: embed hay reference
+- **Embed** khi: đọc cùng nhau, thuộc về cha (vòng đời chung), số lượng **có giới hạn** (dòng của một đơn).
+- **Reference** khi: dùng chung (khách hàng dùng ở nhiều đơn), tăng không giới hạn (log, comment), cập nhật độc lập thường xuyên.
+- Giới hạn kích thước: MongoDB **16 MB**/document, Cosmos DB **2 MB**/item. Mảng tăng mãi (append audit vào một document) → document phình, ghi chậm, cuối cùng lỗi.
+- **Denormalize có chủ ý**: lưu kèm `customerName` trong order để hiển thị nhanh → khi khách đổi tên thì phải cập nhật nhiều nơi hoặc chấp nhận tên cũ (với hoá đơn, giữ tên tại thời điểm lập là **đúng nghiệp vụ**).
+
+### C7.4 Partition key — quyết định quan trọng nhất ở Cosmos DB/Mongo sharded
+- Cosmos DB: dữ liệu chia theo **logical partition** (cùng giá trị partition key), mỗi logical partition tối đa **20 GB**; chi phí tính bằng **RU (Request Unit)**: point read 1 KB theo id + partition key ≈ **1 RU**; query không có partition key → **cross-partition fan-out**, tốn RU gấp nhiều lần.
+- Chọn key: **cardinality cao**, phân bố đều đọc/ghi, và **có mặt trong truy vấn chính**. Ví dụ quest state: partition theo `playerId` → "lấy tiến độ quest của player" là point read/single-partition query, transaction batch cập nhật nhiều quest của **cùng** player được.
+- Sai: partition theo `questId` → một quest phổ biến dồn hàng triệu player vào một partition (**hot partition**), lỗi **429 (Request rate too large)**.
+- **Optimistic concurrency**: mỗi item có `_etag`; ghi với `IfMatchEtag` → item đã đổi thì trả **412 Precondition Failed** → đọc lại, retry. Đây là cơ chế đúng để chống ghi đè ở Cosmos (thay cho rowversion SQL, B3/C3).
+
+### C7.5 Bảng chọn
+| Tình huống | Chọn | Lý do |
+|---|---|---|
+| Ví, ledger, thanh toán, tồn slot sản xuất | **SQL** | ACID nhiều bảng, UNIQUE/CHECK, atomic conditional UPDATE |
+| Đơn hàng, hợp đồng, khách hàng, báo cáo kế toán | **SQL** | Quan hệ, truy vấn ad-hoc, báo cáo |
+| Trạng thái quest theo player, profile game | Document (Cosmos) | Đọc/ghi theo một khoá, schema đổi theo quest, scale lớn |
+| Audit log, lịch sử thay đổi, event | Document hoặc append-only store | Ghi nhiều, cấu trúc khác nhau theo entity, ít JOIN |
+| Form động, cấu hình workflow, dữ liệu offline từ app | Document | Schema linh hoạt |
+| Catalog với thuộc tính khác nhau theo loại | SQL + cột JSON thường đủ | Không cần thêm hệ thống mới |
+| Tìm kiếm full-text, fuzzy | Search engine | Không phải việc của SQL/Mongo chính |
+| Cache, session, leaderboard | Key-value (Redis, C4) | Trong RAM, TTL |
+
+- **Polyglot persistence** có giá: thêm backup, giám sát, kỹ năng team, đồng bộ dữ liệu giữa hai kho (dual write, C5.4). Mặc định **một SQL tốt** cho hệ nghiệp vụ như Ops Hub; thêm kho khác khi có lý do đo được.
+
+### C7.6 Hiểu lầm hay gặp (và câu phản biện)
+- "NoSQL nhanh hơn": nhanh với **truy cập theo khoá đã thiết kế**; truy vấn ngoài thiết kế thì chậm và đắt. SQL có index tốt cũng trả point lookup dưới 1 ms.
+- "NoSQL không có schema": schema vẫn có, chỉ là nằm **trong code** → cần versioning document (`schemaVersion`), migrate dần khi đọc.
+- "SQL không scale": scale dọc rất xa, read replica, partitioning; Azure SQL Hyperscale tới 100 TB. Phần lớn hệ thống doanh nghiệp không vượt nổi một SQL Server tốt.
+- "Mongo không có transaction": có, nhưng thiết kế tốt là để **một document = một ranh giới nhất quán**.
+
+### C7.7 Gắn với dự án thật
+- **PlaySweeps / Quest Engine V2**: state quest ở **Cosmos DB**, số dư ở SQL do **Nexus** sở hữu. Đó là cách chia hợp lý: dữ liệu theo player, schema thay đổi theo công thức quest (ncalc do client thiết kế) để ở document; tiền ở SQL. Partition key thật của container quest: [Hiệp xác nhận].
+- **Joblogic**: SQL Server shard theo tenant cho nghiệp vụ; MongoDB cho **audit** (46+ loại entity, giữ 6 tháng), workflow definition, offline visit, GPS. Hợp vì ghi nhiều, cấu trúc khác nhau, không JOIN với nghiệp vụ.
+- **Altar (Go)**: MongoDB cho dữ liệu game/NFT. Nếu bị hỏi vì sao: [Hiệp xác nhận lý do thực tế]; đừng bịa.
+
+### C7.8 Câu hỏi phỏng vấn & trả lời mẫu
+
+**Q1. When would you choose MongoDB or Cosmos DB over SQL Server?**
+> When the data is naturally an aggregate read and written by one key, its shape varies or changes often, and I need to scale writes horizontally — for example per-player quest progress, which we kept in Cosmos DB partitioned by player. I'd stay with SQL when I need transactions across several entities, constraints like unique keys and non-negative balances, or ad-hoc reporting with joins. On PlaySweeps that split was exactly how it worked: quest state in Cosmos DB, balances in SQL.
+
+**Q2. Isn't NoSQL faster?**
+> Only for the access patterns you designed for. A point read by ID and partition key in Cosmos DB costs about one request unit and is very fast, but a query without the partition key fans out to every partition and gets expensive. A well-indexed SQL lookup is also sub-millisecond. The choice is about data shape, consistency and scaling model, not raw speed.
+
+**Q3. How do you choose a partition key?**
+> High cardinality, even distribution of reads and writes, and present in the most frequent queries so they stay within one partition. For quest state, player ID works: each player's data is small and queries are per player. Quest ID would be a bad key because a popular quest becomes a hot partition and you start getting 429s. In Cosmos DB transactions only span one logical partition, so the key also defines what can change atomically.
+
+**Q4. Embed or reference in a document model?**
+> Embed what is read together, owned by the parent and bounded in size, like the lines of an order. Reference what is shared or grows without limit, like customers or an audit trail, because documents have size limits — 16 MB in MongoDB, 2 MB in Cosmos DB — and a huge document is slow to rewrite.
+
+**Q5. How do you prevent lost updates in Cosmos DB?**
+> Optimistic concurrency with the item's ETag: I read the item, then replace it with an if-match condition on the ETag. If someone else changed it, I get 412 Precondition Failed, so I reload, reapply the change and retry. For counters I can use the patch API's increment operation, which is applied atomically on the server.
+
+**Q6. Would you use NoSQL for the Ops Hub?**
+> Not as the main store. Quotes, orders, contracts, payments and production slots are relational, need transactions and constraints, and the business will want reports across them. I'd use Azure SQL or SQL Server, possibly JSON columns for product configuration that varies by model, and add a document or search store only for a clear need like a high-volume audit log or full-text search.
+
+### C7.9 Tự kiểm tra
+1. Nói khác biệt relational và document bằng ví dụ đơn hàng có dòng và tuỳ chọn.
+2. Ranh giới transaction ở Cosmos DB là gì?
+3. Vì sao `questId` là partition key tồi? Lỗi gì xuất hiện?
+4. Ba trường hợp nên embed, ba trường hợp nên reference.
+5. ETag ở Cosmos tương đương gì ở SQL Server? Mã lỗi khi xung đột?
+6. Phản biện câu "NoSQL scale tốt hơn nên dùng cho mọi thứ".
 
 ---
 
