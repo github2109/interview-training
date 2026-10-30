@@ -50,15 +50,15 @@ Ký hiệu trạng thái: ⬜ chưa học · 📖 đang học · ✅ xong (đã 
 | C12 | Multi-tenant SaaS | SA | Trung bình–Cao 60% | ⬜ |
 | C13 | System design nhỏ | SA | Trung bình 40% | ⬜ |
 | **D** | **NGHIỆP VỤ, DỰ ÁN, CON NGƯỜI** | | | |
-| D1 | Giới thiệu bản thân, câu hỏi cá nhân | SA + PO | Rất cao 95% | ⏳ |
-| D2 | Kể dự án trong CV + bị đào sâu | SA + PO | Rất cao 95% | ⏳ |
-| D3 | Nghiệp vụ Ops Hub (quote → order → RTO → production → delivery) | PO (+SA) | Rất cao 85% | ⏳ |
-| D4 | Câu hỏi PO: làm rõ yêu cầu, edge case, ưu tiên | PO | Rất cao 85% | ⏳ |
-| D5 | Refactoring và tiếp quản code từ đối tác Mỹ | SA + PO | Cao 80% | ⏳ |
-| D6 | Behavioral STAR (tiếng Anh) | SA + PO | Cao 75% | ⏳ |
-| D7 | Git, Agile/Scrum, làm việc remote với Mỹ | SA + PO | Trung bình 50% | ⏳ |
-| D8 | Câu hỏi ngược cho interviewer | SA + PO | Rất cao 95% | ⏳ |
-| D9 | Checklist trước giờ phỏng vấn, phụ lục | — | — | ⏳ |
+| D1 | Giới thiệu bản thân, câu hỏi cá nhân | SA + PO | Rất cao 95% | ⬜ |
+| D2 | Kể dự án trong CV + bị đào sâu | SA + PO | Rất cao 95% | ⬜ |
+| D3 | Nghiệp vụ Ops Hub (quote → order → RTO → production → delivery) | PO (+SA) | Rất cao 85% | ⬜ |
+| D4 | Câu hỏi PO: làm rõ yêu cầu, edge case, ưu tiên | PO | Rất cao 85% | ⬜ |
+| D5 | Refactoring và tiếp quản code từ đối tác Mỹ | SA + PO | Cao 80% | ⬜ |
+| D6 | Behavioral STAR (tiếng Anh) | SA + PO | Cao 75% | ⬜ |
+| D7 | Git, Agile/Scrum, làm việc remote với Mỹ | SA + PO | Trung bình 50% | ⬜ |
+| D8 | Câu hỏi ngược cho interviewer | SA + PO | Rất cao 95% | ⬜ |
+| D9 | Checklist trước giờ phỏng vấn, phụ lục | — | — | ⬜ |
 
 Đối chiếu bản cũ (2026-10-23) → bản mới: 11→A3, 12→A4, 15→A5/A6/B3, 13→B1, 14→B2, 4→B4, 3→B5/C6, 6→B6, 5→B7, 18→B8, 19→B9, 24→C1/C2, 16→C3, 23→C4/C5, 22→C8, 25→C9, 20→C10, 21→C11, 17→C12, 26→C13, 1→D1, 2→D2, 8→D3, 9→D4, 7→D5, 10→D6, 27/28→D7, 29→D8, 30/31→D9.
 
@@ -3556,9 +3556,9 @@ Hai người cùng giành chỗ cuối: request thứ hai chờ row lock, rồi 
 
 ---
 
-## D1. Giới thiệu bản thân, câu hỏi cá nhân ⏳
+## D1. Giới thiệu bản thân và câu hỏi cá nhân
 
-> ⏳ **Chưa viết lại sâu.** Dưới đây là nội dung bản cũ (số tham chiếu section bên trong là số bản cũ, xem bảng đối chiếu ở 0.2). Claude sẽ viết lại trước khi Hiệp học tới.
+**Vì sao cần.** Câu mở đầu của cả SA lẫn PO. 60 giây đầu quyết định họ đào vào đâu: pitch nhắc tới gì thì bị hỏi tiếp cái đó, nên chỉ nhắc thứ đã ôn kỹ (Quest Engine, Pragmatic, Joblogic contract/spend limit). Timeline phải khớp CV từng tháng.
 
 ### D1.1 Pitch 60 giây
 > I'm a full-stack developer with about four years of experience, strongest on the .NET backend. Most recently I worked on PlaySweeps, a US sweepstakes gaming platform with over two million registered players, on .NET 8, SQL Server, Azure and React. I was a feature lead there: I wrote technical designs, delivered features like the Quest Engine and the KYC integration with Socure, and handled on-call incidents. In parallel, I worked part-time for a UK field-service SaaS called Joblogic, on ASP.NET MVC and a .NET microservice platform, where I delivered features in the Projects and Jobs modules such as cost breakdowns, customer contracts with audit trails, and job spend limits. What attracts me to ShedPro is that the Ops Hub is a business-heavy product, quoting, contracts, production, delivery, which is very close to what I did at Joblogic, and I like working closely with a product manager to understand why a feature matters.
@@ -3594,7 +3594,7 @@ Kinh nghiệm: tính từ 07/2022 → ~4 năm 3 tháng; full-time từ 12/2022 �
 | Notice period / start date? | Đã rời Geargames 09/2026 → có thể bắt đầu sớm. [Hiệp xác nhận]. |
 | Are you interviewing elsewhere? | Thật lòng, ngắn gọn; nhấn SEADEV là lựa chọn ưu tiên vì nghiệp vụ phù hợp. |
 | Remote or onsite? | [Hiệp điền mong muốn]. |
-| Do you have any questions? | Xem section 29. **Luôn có câu hỏi.** |
+| Do you have any questions? | Xem D8. **Luôn có câu hỏi.** |
 
 ### D1.4 Câu hỏi luyện
 1. Tell me about yourself. (60 giây, rồi 30 giây)
@@ -3605,11 +3605,18 @@ Kinh nghiệm: tính từ 07/2022 → ~4 năm 3 tháng; full-time từ 12/2022 �
 6. What do you know about our product?
 7. What kind of team do you work best in?
 
+### D1.T Tự kiểm tra
+1. Nói pitch 60 giây và 30 giây, bấm giờ.
+2. Đọc lại timeline không nhìn bảng.
+3. Trả lời "Why did you leave?" trong 2 câu, không chê công ty cũ.
+4. Nêu một điểm yếu thật và việc đang làm để cải thiện.
+5. Điền các chỗ [Hiệp điền] còn trống (lương, ngày bắt đầu, remote/onsite).
+
 ---
 
-## D2. Kể dự án trong CV + bị đào sâu ⏳
+## D2. Kể dự án trong CV và bị đào sâu
 
-> ⏳ **Chưa viết lại sâu.** Dưới đây là nội dung bản cũ (số tham chiếu section bên trong là số bản cũ, xem bảng đối chiếu ở 0.2). Claude sẽ viết lại trước khi Hiệp học tới.
+**Vì sao cần.** SA/PO chọn một dòng trong CV rồi đào: "how did you design it → what went wrong → what would you change". Các câu kỹ thuật ở A–C là để **đỡ** được những lần đào này. Mỗi câu chuyện 60–90 giây: bối cảnh → vấn đề → bạn làm gì → kết quả → bài học / nối sang Ops Hub.
 
 SA và PO sẽ chọn một dòng trong CV và đào: "tell me more about X → how did you design it → what went wrong → what would you change → how would you apply it here". Mỗi câu chuyện 60–90 giây theo khung **bối cảnh → vấn đề → bạn làm gì → kết quả → bài học / nối sang Ops Hub**.
 
@@ -3679,11 +3686,18 @@ Câu đào sâu Joblogic hay gặp:
 9. Tell me about a time a requirement changed late. (Gợi ý: Job Spend Limit, RedeployRequired.)
 10. How much of PlaySweeps backend did you know? (~150 project; feature mình lead thì nắm sâu, phần khác nắm luồng chính.)
 
+### D2.T Tự kiểm tra
+1. Vẽ kiến trúc PlaySweeps trong 1 phút (nói to).
+2. Kể Quest Engine V2 và câu tự phản biện về RedLock/fencing token (C3.5, C4.6).
+3. Pragmatic: key idempotency là gì, trùng thì trả gì, refund đến trước bet (C3.3).
+4. Kiến trúc Joblogic 2 phút, gồm cách cô lập tenant (C12.3).
+5. Job Spend Limit: hai edge case và cách xử lý.
+
 ---
 
-## D3. Nghiệp vụ Ops Hub ⏳
+## D3. Nghiệp vụ Ops Hub
 
-> ⏳ **Chưa viết lại sâu.** Dưới đây là nội dung bản cũ (số tham chiếu section bên trong là số bản cũ, xem bảng đối chiếu ở 0.2). Claude sẽ viết lại trước khi Hiệp học tới.
+**Vì sao cần.** PO chấm hiểu nghiệp vụ; SA dùng nghiệp vụ làm đề thiết kế. Phần này là từ vựng và luồng của ngành bán nhà kho/carport ở Bắc Mỹ, cộng các điểm khó (tiền, thời gian, tài liệu, sản xuất, giao hàng). Phần lên lịch giao có bản thiết kế đầy đủ ở C13.2. **Chỉ dựa trên JD và kiến thức ngành chung, không có chi tiết nội bộ ShedPro.**
 
 Chỉ dùng phạm vi **công khai trong JD**. Nói dạng "I'd assume… and I'd confirm with the PM". SA có nền Urbanise (SaaS vận hành: tiền định kỳ, workflow bảo trì, tài liệu, đối soát ngân hàng) → rất có thể hỏi tiền, workflow, tài liệu.
 
@@ -3868,7 +3882,7 @@ Câu mẫu:
 - **Cửa sổ thời gian**: sáng/chiều; khách phải có mặt hay không.
 - **Điều kiện mặt bằng** (site readiness): nền đã san phẳng, lối vào đủ rộng, không vướng dây điện/cây → checklist trước giao; không đạt → giao lại, có phí.
 - **Thứ tự phụ thuộc**: chỉ lên lịch khi `ReadyForDelivery` (hoặc dự kiến xong trước ngày giao) và **đã trả đủ tiền / RTO đã duyệt** (hỏi PO).
-- Ngày giao là **ngày lịch + timezone xưởng** (xem 8.4).
+- Ngày giao là **ngày lịch + timezone xưởng** (xem D3.4).
 
 **Chống đặt quá: bản chất là race condition "check-then-act".** Hai điều phối viên cùng thấy xe A ngày 05/11 còn 1 chỗ (2/3), cùng bấm lưu → 4/3. Đọc `COUNT(*)` rồi mới INSERT là sai, kể cả trong transaction ở mức Read Committed (cả hai đều đọc được 2).
 
@@ -4002,15 +4016,15 @@ Câu mẫu:
 - Giữ chỗ có hạn (reservation expiry) → job nền giải phóng.
 
 ### D3.8 Multi-tenant settings
-Mỗi công ty bán shed là một tenant (có store/region bên trong): cấu hình thuế, template, quy trình, RTO provider được bật, feature theo gói. Cô lập dữ liệu → section 17.
+Mỗi công ty bán shed là một tenant (có store/region bên trong): cấu hình thuế, template, quy trình, RTO provider được bật, feature theo gói. Cô lập dữ liệu → C12.
 
 ### D3.9 Tích hợp bên thứ ba (phạm vi chung)
-Payment provider, API thuế, công ty RTO, configurator 3D/website bán hàng, SMS/email, kế toán (QuickBooks…), Zapier/webhook ra ngoài. Nguyên tắc → section 22.
+Payment provider, API thuế, công ty RTO, configurator 3D/website bán hàng, SMS/email, kế toán (QuickBooks…), Zapier/webhook ra ngoài. Nguyên tắc → C8.
 
 ### D3.10 Câu hỏi luyện (domain)
 1. Walk me through how a quote becomes a delivered order. What data changes at each step?
 2. A customer paid a deposit, then the quote was revised. How do you keep the balance due correct?
-3. Balance due is wrong for some orders. How do you investigate and fix? (xem 9.2)
+3. Balance due is wrong for some orders. How do you investigate and fix? (xem D4.2)
 4. Prices go up after a quote was sent. What happens to the quote?
 5. How would you store money and handle rounding?
 6. How do you calculate a rent-to-own payment schedule so the total matches exactly?
@@ -4029,11 +4043,18 @@ Payment provider, API thuế, công ty RTO, configurator 3D/website bán hàng, 
 19. Markup vs margin — what's the difference? Which would the dealer see?
 20. How would you design an owner/customer portal that shows payments and balance? (Urbanise có owner portal — dễ bị hỏi)
 
+### D3.T Tự kiểm tra
+1. Giải thích RTO (rent-to-own) khác trả góp thường ở đâu.
+2. Balance due tính từ đâu? Vì sao tính từ ledger chứ không lưu một con số rồi sửa?
+3. Ngày giao lưu kiểu gì, vì sao không lệch ngày (D3.4, B9.4)?
+4. Hợp đồng đã ký: làm sao đảm bảo không đổi khi template đổi?
+5. Lưu thứ tự kéo-thả của hàng đợi sản xuất thế nào khi hai người cùng sửa?
+
 ---
 
-## D4. Câu hỏi PO ⏳
+## D4. Câu hỏi PO: làm rõ yêu cầu, edge case, ưu tiên
 
-> ⏳ **Chưa viết lại sâu.** Dưới đây là nội dung bản cũ (số tham chiếu section bên trong là số bản cũ, xem bảng đối chiếu ở 0.2). Claude sẽ viết lại trước khi Hiệp học tới.
+**Vì sao cần.** PO không hỏi code; PO chấm cách Hiệp **hiểu vì sao**, hỏi đúng câu, nhìn ra edge case, giao tiếp rõ và chịu trách nhiệm.
 
 🟢 Nối value: **Driven by Customer Success** (xem mục tiêu của khách như của mình, khách nội bộ gồm cả PM), **1% Improvement** (từng phân đoạn thay vì phiên bản hoàn hảo, linh hoạt khi đổi yêu cầu), **Enjoy Problem Solving** (80/20, biết hỏi giúp), **Be Accountable** (báo sớm, chính trực).
 Khung: **làm rõ (hỏi lại) → đề xuất phương án nhỏ giao trước → edge case → đo kết quả**. PO đánh giá: hiểu "vì sao", hỏi đúng câu, giao tiếp rõ, không tự ý làm thêm, chịu trách nhiệm.
@@ -4044,7 +4065,7 @@ Khung: **làm rõ (hỏi lại) → đề xuất phương án nhỏ giao trướ
 | Quote đã gửi, bảng giá tăng | Quote là snapshot có hạn; giữ giá tới hết hạn; muốn cập nhật thì tạo **revision** mới, khách thấy so sánh. Hỏi PO chính sách |
 | Balance due sai ở một số đơn | Lấy danh sách đơn sai, tìm điểm chung (có refund? đổi thuế? sửa đơn sau deposit? làm tròn?), so ledger vs số lưu, sửa công thức + **script sửa dữ liệu có audit**, test hồi quy, báo khách bị ảnh hưởng |
 | Huỷ đơn khi đã vào sản xuất | Hỏi: phí huỷ? hoàn deposit bao nhiêu? sản phẩm dở thành inventory? ai được duyệt? thông báo ai? RTO contract huỷ thế nào? có giới hạn thời gian? |
-| Ngày giao lệch 1 ngày | Section 8.4 |
+| Ngày giao lệch 1 ngày | D3.4 |
 | Yêu cầu mơ hồ | Hỏi "vấn đề người dùng là gì", viết acceptance criteria + ví dụ cụ thể (Given/When/Then), mock nhanh, xác nhận lại trước khi code |
 | Đổi yêu cầu giữa sprint | Nêu ảnh hưởng (thời gian, rủi ro), để PO chọn đổi phạm vi; không âm thầm làm thêm |
 | Feature lớn | Cắt **lát dọc** (vertical slice), feature flag, giao bản tối thiểu dùng được trước ("1% improvements") |
@@ -4095,11 +4116,18 @@ Khung: **làm rõ (hỏi lại) → đề xuất phương án nhỏ giao trướ
 14. How do you explain a technical problem to a non-technical person?
 15. Give an example of taking ownership beyond your task.
 
+### D4.T Tự kiểm tra
+1. Trả lời tình huống "balance due sai ở một số đơn" theo đúng 5 bước.
+2. Huỷ đơn khi đã vào sản xuất: liệt kê 6 câu hỏi cần hỏi PO.
+3. Đổi yêu cầu giữa sprint: nói gì với PO?
+4. Không đồng ý với PO: ai quyết cái gì?
+5. Áp edge case checklist vào feature "đổi ngày giao".
+
 ---
 
-## D5. Refactoring và tiếp quản code từ đối tác Mỹ ⏳
+## D5. Refactoring và tiếp quản code từ đối tác Mỹ
 
-> ⏳ **Chưa viết lại sâu.** Dưới đây là nội dung bản cũ (số tham chiếu section bên trong là số bản cũ, xem bảng đối chiếu ở 0.2). Claude sẽ viết lại trước khi Hiệp học tới.
+**Vì sao cần.** JD ghi thẳng "taking over from a US partner", nên gần như chắc chắn có câu "2 tuần đầu bạn làm gì". Nối với B7 (clean code), B8 (characterization test), C10 (pipeline), D7.7 (làm việc lệch múi giờ).
 
 JD ghi thẳng "taking over from a US partner". Gần như chắc chắn có câu "2 tuần đầu".
 
@@ -4161,11 +4189,18 @@ Khi tiếp quản legacy, kiểm tra kỹ thuật đầu tiên: FK có index kh�
 9. What code smells do you look for first?
 10. Rewrite or refactor? When is a rewrite justified?
 
+### D5.T Tự kiểm tra
+1. Kể kế hoạch 2 tuần đầu theo 5 ý.
+2. Characterization test là gì? Cho ví dụ với tính giá quote.
+3. Strangler fig vs branch by abstraction.
+4. Năm thứ kiểm tra kỹ thuật đầu tiên khi mở codebase legacy .NET.
+5. Thuyết phục PM dành thời gian refactor bằng lập luận nào?
+
 ---
 
-## D6. Behavioral STAR (tiếng Anh) ⏳
+## D6. Behavioral STAR (tiếng Anh)
 
-> ⏳ **Chưa viết lại sâu.** Dưới đây là nội dung bản cũ (số tham chiếu section bên trong là số bản cũ, xem bảng đối chiếu ở 0.2). Claude sẽ viết lại trước khi Hiệp học tới.
+**Vì sao cần.** Vòng tech vẫn có vài câu hành vi, và SEADEV chấm theo core values. Bộ câu chuyện theo value ở `notes/S-seadev-culture.md`; phần này là bộ câu chuyện kỹ thuật và lỗi tiếng Anh hay mắc.
 
 🟢 Bộ câu chuyện theo từng core value (và bảng câu chuyện × value) nằm ở `notes/S-seadev-culture.md` mục 3 và 5 — dùng chung cho cả vòng tech.
 STAR: **Situation** (1–2 câu) → **Task** (1 câu) → **Action** (nhiều nhất, dùng "I") → **Result** (con số, hậu quả) → bài học. 60–90 giây.
@@ -4178,7 +4213,7 @@ STAR: **Situation** (1–2 câu) → **Task** (1 câu) → **Action** (nhiều n
 | Hardest production bug / on-call (Q137) | Incident điều tra bằng App Insights + Loki + Splunk | **[Hiệp điền: 1 vụ cụ thể, triệu chứng, công cụ, nguyên nhân, fix, con số]** |
 | Bug không tái hiện ở local (Q142) | Dùng Splunk BI event để dựng lại hành trình user | **[Hiệp điền]** |
 | Performance problem (Q138) | Tối ưu fetch/cache AVA config | **[Hiệp điền con số trước/sau]** |
-| Edge case from understanding business | **Job Spend Limit** (visit 2+, RedeployRequired) | Câu mẫu ở 2.2 |
+| Edge case from understanding business | **Job Spend Limit** (visit 2+, RedeployRequired) | Câu mẫu ở D2.2 |
 | Disagreement with a technical decision (Q140) | **[Hiệp điền]** — gợi ý: lock vs DB constraint, sync vs async reward | Kết: đưa dữ liệu, chấp nhận quyết định chung |
 | Incident caused by a design decision (Q139) | **[Hiệp điền]** — gợi ý: mirror balance ghi giá trị tuyệt đối | Nói bài học, không đổ lỗi |
 | Working remotely with a foreign team | PLAYSTUDIOS (Mỹ): Slack hằng ngày, họp technical design; Joblogic (UK): code review Azure DevOps | Chênh múi giờ, giao tiếp async |
@@ -4215,57 +4250,113 @@ STAR: **Situation** (1–2 câu) → **Task** (1 câu) → **Action** (nhiều n
 11. Tell me about a time you improved something nobody asked you to.
 12. Tell me about a time you had to push back on a deadline or requirement.
 
----
-
-## D7. Git, Agile/Scrum, làm việc remote với Mỹ ⏳
-
-> ⏳ **Chưa viết lại sâu.** Dưới đây là nội dung bản cũ (số tham chiếu section bên trong là số bản cũ, xem bảng đối chiếu ở 0.2). Claude sẽ viết lại trước khi Hiệp học tới.
-
-- **Workflow**: feature branch → PR → review → merge vào main; trunk-based (nhánh ngắn, feature flag) vs GitFlow (develop/release/hotfix). Joblogic: Azure DevOps PR + nhánh uat; PlaySweeps: review chéo PR.
-- **merge vs rebase**: merge giữ lịch sử thật (merge commit); rebase viết lại commit lên đầu nhánh mới → lịch sử thẳng. **Không rebase/force-push nhánh chung.** `--force-with-lease` an toàn hơn `--force` trên nhánh của mình.
-- **Squash merge**: gộp PR thành 1 commit trên main.
-- **revert vs reset**: `revert` tạo commit đảo ngược (an toàn cho nhánh đã push/prod); `reset` dời con trỏ (chỉ dùng local). `reset --soft/--mixed/--hard`.
-- **cherry-pick**: lấy một commit sang nhánh khác (hotfix sang release branch).
-- **Conflict**: hiểu cả hai thay đổi, hỏi tác giả nếu cần, chạy test sau khi giải.
-- `git stash`, `git bisect` (tìm commit gây lỗi bằng nhị phân), `git blame` (hiểu ngữ cảnh, không để đổ lỗi), `git reflog` (cứu commit "mất"), tag cho release.
-- Commit message rõ (imperative, giải thích vì sao), commit nhỏ có ý nghĩa; Conventional Commits.
-- `.gitignore`, không commit secret (nếu lỡ: xoay secret ngay, xoá lịch sử là phụ).
-- Branch protection, required reviewers, CI pass.
-
-Câu hỏi luyện:
-1. Merge vs rebase — when each?
-2. How do you undo a commit that's already in production?
-3. How do you ship a hotfix to a release branch?
-4. You committed a secret. What do you do?
-5. How do you find which commit introduced a bug? (`git bisect`)
-6. What branching strategy do you prefer and why?
-7. How do you resolve a conflict in a file you don't own?
-
-- **Scrum**: sprint (1–2 tuần), sprint planning, daily stand-up (đã làm gì, sẽ làm gì, vướng gì), sprint review/demo, retrospective, backlog refinement. Vai trò: PO (giá trị, ưu tiên), Scrum Master (quy trình), Dev team (cách làm).
-- **Kanban**: luồng liên tục, giới hạn WIP — hợp team vận hành/bảo trì.
-- **User story** "As a [role], I want [x] so that [y]" + **acceptance criteria** (Given/When/Then); **INVEST**.
-- **Estimate**: story point (độ phức tạp tương đối, planning poker) vs giờ; velocity; nêu giả định, chia nhỏ, spike cho việc chưa rõ.
-- **Definition of Ready / Done**: DoD = code + test + review + deploy staging + tài liệu/monitoring.
-- **Tech debt**: ghi ticket, dành % mỗi sprint, gắn với rủi ro/tốc độ.
-- PlaySweeps: Scrum + Jira (~354 ticket WIN-xxxx).
-- **Remote với Mỹ** (chênh ~11–15 giờ với Việt Nam tuỳ múi giờ và DST): giao tiếp **async** viết rõ (bối cảnh, câu hỏi cụ thể, phương án đề xuất để họ chỉ cần chọn), gom câu hỏi trước giờ trùng nhau, ghi lại quyết định, demo bằng video/ảnh, không để bị chặn: làm phần khác trong lúc chờ, nêu giả định rõ.
-- Câu mẫu:
-> With a 12-hour gap, I try to make every message self-contained: the context, the specific question, and my proposed option, so the PM can just say yes or pick another option when they wake up. While I wait, I keep working on parts that don't depend on the answer, and I write down my assumption so it's easy to adjust. At PlaySweeps I worked daily with the PLAYSTUDIOS team in the US over Slack and joined technical design meetings in the overlap hours.
-
-Câu hỏi luyện:
-1. Describe your Scrum process in your last team.
-2. How do you estimate a story? What if the estimate is wrong?
-3. What's your Definition of Done?
-4. How do you handle tech debt in sprints?
-5. How do you work with a team 12 hours behind?
-6. What makes a good user story / acceptance criteria?
-7. What do you do in a retrospective when something went badly?
+### D6.T Tự kiểm tra
+1. Kể Socure theo STAR trong 90 giây.
+2. Chọn một sự cố on-call thật và kể theo khung C9.3 (tác động → thay đổi → khoanh vùng → xác nhận → xử lý tạm/gốc → phòng ngừa).
+3. Điền các ô [Hiệp điền] còn trống.
+4. Đọc lại các lỗi tiếng Anh và tự sửa 3 câu mình hay nói sai.
 
 ---
 
-## D8. Câu hỏi ngược cho interviewer ⏳
+## D7. Git, Agile/Scrum và làm việc remote với Mỹ
 
-> ⏳ **Chưa viết lại sâu.** Dưới đây là nội dung bản cũ (số tham chiếu section bên trong là số bản cũ, xem bảng đối chiếu ở 0.2). Claude sẽ viết lại trước khi Hiệp học tới.
+**Vì sao cần.** JD ghi Git và Agile. Câu hỏi thường dễ, nhưng SA hay đào một chỗ: "merge hay rebase", "revert một merge đã lên prod", "lỡ commit secret". PO hỏi cách ước lượng, Definition of Done, làm việc lệch 12 giờ với Mỹ. Thực tế của Hiệp: PlaySweeps (Scrum + Jira, ~354 ticket, review chéo PR, làm hằng ngày với PLAYSTUDIOS ở Mỹ qua Slack), Joblogic (Azure DevOps PR, nhánh uat, client UK).
+
+### D7.1 Git từ bản chất
+- Git lưu **snapshot**, không lưu diff: mỗi commit trỏ tới một **tree** (cây thư mục) và commit cha. Branch chỉ là **con trỏ** tới một commit; `HEAD` là con trỏ tới branch hiện tại.
+- Vì vậy "viết lại lịch sử" (rebase, amend, reset) thực chất là **tạo commit mới** và dời con trỏ; commit cũ vẫn còn trong **reflog** khoảng 90 ngày → cứu được.
+
+### D7.2 Merge vs rebase vs squash
+```
+main:     A---B---C
+feature:       \---D---E
+merge:    A---B---C-------M      (M có 2 cha; lịch sử thật, có "nút thắt")
+                   \--D---E--/
+rebase:   A---B---C---D'---E'    (D', E' là commit MỚI, hash khác; lịch sử thẳng)
+squash:   A---B---C---S          (S = D+E gộp một commit trên main)
+```
+- **Merge**: an toàn, giữ đúng lịch sử, nhưng nhiều merge commit làm log rối.
+- **Rebase**: lịch sử thẳng, dễ `bisect`; **không rebase nhánh người khác đang dùng** (hash đổi → người khác bị lệch). Sau khi rebase nhánh của mình thì `git push --force-with-lease` (từ chối nếu remote có commit mình chưa thấy), không `--force` trần.
+- **Squash merge PR**: một PR = một commit trên main → revert cả feature bằng một lệnh; mất lịch sử commit nhỏ trong PR (vẫn còn trên PR).
+- Câu Senior: "Rebase my own branch to keep it current, squash or merge into main depending on the team's convention, never rewrite shared history."
+
+### D7.3 Hoàn tác đúng cách
+| Tình huống | Lệnh | Vì sao |
+|---|---|---|
+| Commit đã lên main/prod gây lỗi | `git revert <sha>` | Tạo commit đảo ngược, không viết lại lịch sử chung |
+| Revert một **merge commit** | `git revert -m 1 <merge-sha>` | Chọn cha số 1 (main) làm gốc. Lưu ý: muốn merge lại nhánh đó sau này phải **revert cái revert** |
+| Sửa commit cuối chưa push | `git commit --amend` | |
+| Bỏ commit local chưa push | `git reset --soft HEAD~1` (giữ thay đổi staged) / `--mixed` (giữ trong working dir) / `--hard` (xoá luôn) | Chỉ dùng cho local |
+| "Mất" commit sau reset/rebase | `git reflog` → `git branch rescue <sha>` | Reflog ghi mọi lần HEAD di chuyển |
+| Mang một fix sang nhánh release | `git cherry-pick <sha>` | Hotfix |
+| Tìm commit gây lỗi | `git bisect start; git bisect bad; git bisect good v1.4` (+ `git bisect run dotnet test ...`) | Tìm nhị phân: 1.000 commit chỉ cần ~10 bước |
+
+### D7.4 Lỡ commit secret
+1. **Thu hồi và xoay secret ngay** (đây là việc quan trọng nhất: coi như đã lộ, vì có thể đã bị clone, có trong CI log, fork, cache).
+2. Kiểm tra log truy cập của secret đó xem có bị dùng chưa.
+3. Xoá khỏi lịch sử (`git filter-repo` hoặc BFG) và force push có phối hợp với team, là bước **phụ**.
+4. Phòng ngừa: secret scanning (GitHub push protection, gitleaks trong pre-commit/CI), `.gitignore`, User Secrets/Key Vault cho dev.
+
+### D7.5 Chiến lược nhánh
+- **Trunk-based**: nhánh ngắn (≤ 1–2 ngày), merge vào main thường xuyên, **feature flag** cho phần chưa xong, main luôn deploy được. Hợp CI/CD (C10).
+- **GitFlow**: `develop`, `release/*`, `hotfix/*`. Hợp sản phẩm phát hành theo version cố định; nặng nề với web app deploy liên tục.
+- Joblogic có nhánh **uat** cho môi trường kiểm thử của client. Với Ops Hub đang tiếp quản: hỏi quy trình hiện tại trước, cải tiến dần (D5).
+- Commit message: dòng đầu dạng mệnh lệnh ngắn ("Fix balance due rounding for refunds"), thân giải thích **vì sao**; Conventional Commits (`fix:`, `feat:`) nếu team dùng. PR nhỏ, một mục đích, mô tả cách test.
+- Giải conflict ở file không phải của mình: hiểu **cả hai** thay đổi (đọc PR gốc), hỏi tác giả khi không chắc, chạy test sau khi giải. Conflict lặp lại ở cùng file là dấu hiệu file đó gánh quá nhiều trách nhiệm.
+
+### D7.6 Agile/Scrum
+- **Scrum**: sprint 1–2 tuần; planning, daily (đồng bộ và gỡ vướng, không phải báo cáo), review/demo, retrospective, backlog refinement. Vai trò: **PO** (giá trị, thứ tự ưu tiên), **Scrum Master** (quy trình, gỡ vướng), **Developers** (cách làm, chất lượng).
+- **Kanban**: luồng liên tục, **giới hạn WIP**, đo cycle time; hợp giai đoạn tiếp quản/bảo trì nhiều bug.
+- **User story** "As a dispatcher, I want to see full truck days so that I don't overbook" + **acceptance criteria** Given/When/Then; tiêu chí **INVEST** (Independent, Negotiable, Valuable, Estimable, Small, Testable).
+- **Ước lượng**: story point = độ phức tạp + rủi ro + khối lượng **tương đối** (planning poker để lộ hiểu lầm: một người 2, một người 13 → bàn); velocity dùng để dự báo, không dùng để so người. Việc chưa rõ → **spike** có thời hạn. Đưa **khoảng** và **giả định**, báo sớm khi lệch.
+- **Definition of Ready** (story đủ rõ để làm: AC, thiết kế, phụ thuộc) và **Definition of Done** (code + test + review + chạy trên staging + migration an toàn + log/metric + tài liệu cập nhật + PO chấp nhận).
+- **Nợ kỹ thuật**: ghi thành ticket với rủi ro cụ thể ("tính balance due không có test, mỗi tháng 2 bug"), dành một phần mỗi sprint, làm kèm feature chạm vào vùng đó (boy scout rule, value **1% Improvement**).
+- Retro khi có chuyện xấu: tập trung vào **quy trình** (thiếu test gì, thiếu alert gì), không vào người (value **Love our People**, "coach, not police").
+
+### D7.7 Làm việc remote lệch múi giờ với Mỹ
+- Chênh lệch: Việt Nam (UTC+7) với miền Đông Mỹ 11 giờ (mùa hè, EDT) hoặc 12 giờ (mùa đông, EST); với miền Tây 14–15 giờ. Thời gian trùng thường là **sáng sớm hoặc tối muộn** ở Việt Nam.
+- **Viết tin nhắn tự đủ (self-contained)**: bối cảnh → câu hỏi cụ thể → phương án đề xuất (A/B) và cái mình chọn nếu không có trả lời → bên kia chỉ cần chọn khi thức dậy. Ví dụ:
+> Context: refunds after the deposit make balance due negative on 14 orders. Question: should a negative balance show as a credit or be refunded automatically? Proposal: show it as a credit and flag it for the office, since automatic refunds touch the payment provider. I'll build it that way behind a flag unless you prefer otherwise.
+- Gom câu hỏi trước giờ trùng; ghi lại quyết định (ticket/ADR) để không hỏi lại; demo bằng video ngắn/ảnh; không để bị chặn: làm phần không phụ thuộc, ghi giả định rõ.
+- Bàn giao từ đối tác Mỹ (D5): danh sách câu hỏi chuẩn bị trước, ghi hình buổi KT nếu được, tài liệu sống.
+
+### D7.8 Câu hỏi phỏng vấn & trả lời mẫu
+
+**Q1. Merge or rebase?**
+> I rebase my own feature branch onto main to keep it current and the history linear, then push with `--force-with-lease`. I never rebase a branch other people are working on, because rebasing creates new commits and their copies diverge. How the PR lands — squash or merge commit — I follow the team's convention; squash makes it easy to revert a whole feature with one commit.
+
+**Q2. A commit in production broke something. How do you undo it?**
+> `git revert`, which adds a new commit that reverses it, so shared history isn't rewritten and the fix goes through the normal pipeline. For a merge commit I revert with `-m 1` to keep main's side, and remember that re-merging that branch later means reverting the revert. If the change was behind a feature flag, turning it off is faster than any revert.
+
+**Q3. You accidentally committed an API key. What do you do?**
+> Rotate the key immediately and treat it as leaked, because it may already be in clones, forks or CI logs, then check whether it was used. Removing it from history with `git filter-repo` is secondary and needs coordination with the team. Then prevent it from recurring with secret scanning in CI and push protection, and keep secrets in a vault or user secrets instead of config files.
+
+**Q4. How do you estimate a story? What if you're wrong?**
+> I break it down, call out assumptions and unknowns, and give a range, or story points relative to work we've done. If something is genuinely unclear, I propose a short time-boxed spike first. When I see the estimate slipping, I say so early with the reason and options — cut scope, split the story or move the date — rather than surprising the PO at the end of the sprint.
+
+**Q5. What's your Definition of Done?**
+> Code reviewed and merged, tests covering the behaviour including edge cases, running on staging with migrations that are backward compatible, logging and metrics so we can see it work in production, documentation or release notes updated, and the PO has accepted it against the acceptance criteria.
+
+**Q6. How do you work with a team twelve hours behind?**
+> I make every message self-contained: the context, the specific question, the options and the one I'd pick, so the PM can answer in one line when they wake up. I batch questions for the overlap hours, record decisions in the ticket, and keep working on parts that don't depend on the answer, with my assumption written down. At PlaySweeps I worked with the PLAYSTUDIOS team in the US every day this way and joined design meetings in the overlap hours.
+
+**Q7. How do you handle technical debt?**
+> I make it visible as tickets that describe the risk in business terms, like "balance due has no tests and caused two bugs last month", agree priorities with the PO, and pay it down in small steps alongside features that touch that area, rather than asking for a separate rewrite.
+
+### D7.9 Tự kiểm tra
+1. Vẽ lịch sử sau merge, rebase, squash của nhánh có 2 commit.
+2. Vì sao `--force-with-lease` an toàn hơn `--force`?
+3. Revert một merge commit thế nào? Bẫy khi merge lại nhánh đó?
+4. Bốn bước khi lỡ commit secret, bước nào quan trọng nhất?
+5. `git bisect` với 1.000 commit cần khoảng bao nhiêu bước?
+6. Viết một tin nhắn self-contained gửi PM ở Mỹ cho một câu hỏi nghiệp vụ.
+7. DoR khác DoD ở đâu?
+
+---
+
+## D8. Câu hỏi ngược cho interviewer
+
+**Vì sao cần.** Gần như chắc chắn được mời hỏi. Câu hỏi tốt cho thấy Hiệp nghĩ như người sẽ sở hữu hệ thống (kiến trúc sau bàn giao, release, test cho luồng tiền).
 
 Chọn 2–3 câu mỗi người, đừng hỏi những gì JD đã ghi.
 
@@ -4295,20 +4386,24 @@ Chung (cuối buổi):
 
 Tránh: lương/phúc lợi ở vòng tech (để HR), câu hỏi lộ ra là đã đọc release notes nội bộ của ShedPro, câu hỏi về hồ sơ cá nhân interviewer.
 
+### D8.T Tự kiểm tra
+1. Chọn sẵn 2 câu cho SA, 2 câu cho PO, 1 câu gắn core value.
+
 ---
 
-## D9. Checklist trước giờ phỏng vấn, phụ lục ⏳
+## D9. Checklist trước giờ phỏng vấn và phụ lục
 
-> ⏳ **Chưa viết lại sâu.** Dưới đây là nội dung bản cũ (số tham chiếu section bên trong là số bản cũ, xem bảng đối chiếu ở 0.2). Claude sẽ viết lại trước khi Hiệp học tới.
+**Vì sao cần.** Đọc trong 15 phút trước giờ vào phòng.
 
 ### D9.1 Một ngày trước
-- [ ] Đọc lại section 1, 2 (pitch, câu chuyện), nói to 2 lần.
+- [ ] Đọc lại D1, D2 (pitch, câu chuyện), nói to 2 lần.
 - [ ] Điền hết các chỗ **[Hiệp điền]** (incident on-call, Socure chi tiết, lương, bất đồng, sai lầm).
-- [ ] Đọc bảng 0.2, xem lướt "Câu hỏi luyện" của mọi section.
+- [ ] Đọc bảng 0.2 (tiến độ), xem lại các section còn ⬜, xem lướt "Câu hỏi luyện" của mọi section.
 - [ ] Chuẩn bị giấy/bảng trắng (vẽ kiến trúc), nước, tai nghe; test mic/camera nếu online.
 - [ ] Mở sẵn CV (bản đã gửi) để khớp chính xác.
 
 ### D9.2 Lỗi Hiệp hay mắc — tự nhắc
+- **Bài học Agapi** (đừng lặp lại): request chậm → đi theo 6 bước C9.3, nói **p99** và **trace** trước khi đoán; nhắc **thread pool starvation** (`dotnet-counters`), **FK không tự có index**, **blocking** (`sys.dm_exec_requests`), parameter sniffing (Query Store). JWT vs cookie → trả lời bằng **stateful vs stateless** và bảng 2×2 (C1). Insider giữ secret key → nhiều lớp (C2). Lock → kể đủ mode và **XACT_ABORT** (A6). Redis chết → trả lời theo **vai trò** (C4.5). LB → kể ≥ 5 thuật toán (C6.4). Mongo vs SQL → **ranh giới transaction** (C7.2). Build nhanh → đo bằng `-bl` trước (C10.5).
 - Check-then-act → luôn nói "**INSERT with a UNIQUE constraint in the same transaction**" hoặc atomic UPDATE.
 - Trùng request → **replay response cũ**, không trả lỗi.
 - Message liên quan tiền/hợp đồng **không được mất** → outbox / at-least-once + idempotent.
@@ -4331,7 +4426,7 @@ Tránh: lương/phúc lợi ở vòng tech (để HR), câu hỏi lộ ra là đ
 - Vẽ khi nói kiến trúc.
 - Ghi chú câu hỏi để hỏi ngược.
 
-### D9.1 Bảng con số của Hiệp
+### D9.4 Bảng con số của Hiệp
 | Số | Ý nghĩa |
 |---|---|
 | ~4 năm | Kinh nghiệm (từ 07/2022) |
@@ -4349,7 +4444,7 @@ Tránh: lương/phúc lợi ở vòng tech (để HR), câu hỏi lộ ra là đ
 | 39 / 46 / 26 | Module / entity / migration ở EIM |
 | 4 | Intern Hiệp lead ở Astraler |
 
-### D9.2 Câu tiếng Anh hữu dụng
+### D9.5 Câu tiếng Anh hữu dụng
 - "Let me make sure I understand the question…"
 - "There are two options here, and the trade-off is…"
 - "In my last project we did X; for the Ops Hub I'd assume Y and confirm with the PM."
@@ -4359,30 +4454,30 @@ Tránh: lương/phúc lợi ở vòng tech (để HR), câu hỏi lộ ra là đ
 - "What I'd do differently next time is…"
 - "That's a good point — I hadn't considered that. In that case I'd…"
 
-### D9.3 Thuật ngữ nhanh (EN → VI)
+### D9.6 Thuật ngữ nhanh (EN → VI)
 idempotent (gọi nhiều lần cùng kết quả) · race condition (tranh chấp) · lost update (mất cập nhật) · optimistic concurrency (khoá lạc quan) · backfill (điền dữ liệu cũ) · expand/contract (mở rộng rồi thu gọn schema) · characterization test (test chụp hành vi) · strangler fig (thay dần) · seam (điểm chèn) · noisy neighbor (tenant gây ồn) · graceful degradation (suy giảm êm) · circuit breaker (ngắt mạch) · dead-letter queue (hàng chờ chết) · outbox (hộp thư đi) · ledger (sổ cái) · snapshot (bản chụp) · balance due (số còn nợ) · down payment / deposit (đặt cọc) · installment (kỳ trả góp) · eligibility (đủ điều kiện) · audit trail (dấu vết kiểm toán) · feature flag (cờ tính năng) · rollback (quay lui) · blue/green (hai môi trường xanh/lục) · canary (thả dần) · presigned URL (URL ký sẵn).
 
-### D9.4 Đối chiếu JD → section (kiểm tra không sót)
+### D9.7 Đối chiếu JD → section (kiểm tra không sót)
 | Yêu cầu JD | Section |
 |---|---|
-| ≥ 4 năm C#/.NET, .NET Core | 1.2, 11, 12, 13 |
-| ASP.NET MVC và/hoặc Web API | 13, 14, 4 |
-| AWS / cloud | 21, 20 |
-| HTML/CSS/JS, React/Angular/Vue | 19 |
-| Design patterns + refactoring | 6, 7 |
-| Clean, testable, well-structured code; architectural patterns; stable & scalable | 3, 5, 18 |
-| Readable, maintainable code | 5, 7 |
-| Git | 27 |
-| Agile | 28, 9 |
-| RESTful API | 4 |
-| Unit test | 18 |
-| English | 10.3, 31.2 |
-| Tiếp quản code partner Mỹ | 7, 28 |
-| Leading new feature development | 2.1 (Quest Engine), 9, 10 |
-| Performance, quality, long-term maintainability | 25, 5, 15 |
-| Learn quickly and adapt | 1.3, 10 |
-| Hiểu nghiệp vụ, làm sát PM, "1% improvements", accountable | 8, 9, 10 |
-| 5 core values (1% Improvement, Customer Success, Problem Solving, Accountable, Love People & Communities) | `S-seadev-culture.md`; nối ở 1.3, 9, 10, 29 |
-| Quoting, sales orders, RTO contracts, production tracking, delivery scheduling | 8, 26 |
-| Profile SA: Software Architecture, CI/CD, AWS, REST, Clean Coding, React/TS, UX | 3, 20, 21, 4, 5, 19 |
-| Nền SA từ Urbanise: tiền định kỳ, workflow, tài liệu, tích hợp ngân hàng, owner portal | 8.3, 6 (State), 8.5, 22, 8.10 câu 20 |
+| ≥ 4 năm C#/.NET, .NET Core | D1.2, A3, A4, B1 |
+| ASP.NET MVC và/hoặc Web API | B1, B2, B4 |
+| AWS / cloud | C11, C10 |
+| HTML/CSS/JS, React/Angular/Vue | B9 |
+| Design patterns + refactoring | B6, D5 |
+| Clean, testable, well-structured code; architectural patterns; stable & scalable | B5, B7, B8, C6 |
+| Readable, maintainable code | B7, D5 |
+| Git | D7.1–D7.5 |
+| Agile | D7.6, D4 |
+| RESTful API | B4 |
+| Unit test | B8 |
+| English | D6, D9.2 |
+| Tiếp quản code partner Mỹ | D5, D7.7 |
+| Leading new feature development | D2.1 (Quest Engine), D4, D6 |
+| Performance, quality, long-term maintainability | C9, A5, B3, B7 |
+| Learn quickly and adapt | D1.3, D6 |
+| Hiểu nghiệp vụ, làm sát PM, "1% improvements", accountable | D3, D4, D6 |
+| 5 core values | `S-seadev-culture.md`; nối ở D1.3, D4, D6, D8 |
+| Quoting, sales orders, RTO contracts, production tracking, delivery scheduling | D3, C13 |
+| Profile SA: Software Architecture, CI/CD, AWS, REST, Clean Coding, React/TS, UX | B5, C10, C11, B4, B7, B9 |
+| Câu Agapi đã hỏi (request chậm, JWT/cookie, insider, lock/XACT_ABORT, Redis, LB, Mongo vs SQL, build nhanh) | C9, C1, C2, A6, C4, C6, C7, C10 |
