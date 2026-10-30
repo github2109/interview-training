@@ -13,7 +13,7 @@ Ngôn ngữ: **giải thích tiếng Việt, thuật ngữ trong ngoặc (Englis
 3. Muốn bỏ qua phần hỏi → nhắn "**skip**": đánh dấu ✅ (không kiểm tra) và đi tiếp section sau.
 4. Nếu sắp tới ngày phỏng vấn mà chưa học hết: đọc **D1, D2** (pitch, kể dự án) trước, rồi phần "Câu hỏi phỏng vấn" của các section còn lại.
 
-Ký hiệu trạng thái: ⬜ chưa học · 📖 đang học · ✅ xong (đã kiểm tra) · ⏭ xong (skip kiểm tra) · ⏳ section chưa được viết lại sâu (đang là nội dung cũ, Claude sẽ viết lại trước khi Hiệp học tới).
+Ký hiệu trạng thái: ⬜ chưa học · 📖 đang học · ✅ xong (đã kiểm tra) · ⏭ xong (skip kiểm tra).
 
 ### 0.2 Bảng tiến độ
 | # | Section | Ai hay hỏi | Khả năng bị hỏi | Trạng thái |
