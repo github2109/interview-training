@@ -46,9 +46,9 @@ Ký hiệu trạng thái: ⬜ chưa học · 📖 đang học · ✅ xong (đã 
 | C8 | Tích hợp bên thứ ba và resilience | SA | Trung bình 55% | ⬜ |
 | C9 | Observability và chẩn đoán "request mất 8 giây" | SA | Cao (Agapi đã hỏi) | ⬜ |
 | C10 | CI/CD, deploy an toàn, build .NET nhanh hơn | SA | Trung bình–Cao 60% | ⬜ |
-| C11 | AWS (map từ Azure) | SA | Trung bình–Cao 60% | ⏳ |
-| C12 | Multi-tenant SaaS | SA | Trung bình–Cao 60% | ⏳ |
-| C13 | System design nhỏ | SA | Trung bình 40% | ⏳ |
+| C11 | AWS (map từ Azure) | SA | Trung bình–Cao 60% | ⬜ |
+| C12 | Multi-tenant SaaS | SA | Trung bình–Cao 60% | ⬜ |
+| C13 | System design nhỏ | SA | Trung bình 40% | ⬜ |
 | **D** | **NGHIỆP VỤ, DỰ ÁN, CON NGƯỜI** | | | |
 | D1 | Giới thiệu bản thân, câu hỏi cá nhân | SA + PO | Rất cao 95% | ⏳ |
 | D2 | Kể dự án trong CV + bị đào sâu | SA + PO | Rất cao 95% | ⏳ |
@@ -3240,162 +3240,319 @@ ENTRYPOINT ["dotnet", "Api.dll"]
 
 ---
 
-## C11. AWS (map từ Azure) ⏳
+## C11. AWS (đối chiếu từ Azure)
 
-> ⏳ **Chưa viết lại sâu.** Dưới đây là nội dung bản cũ (số tham chiếu section bên trong là số bản cũ, xem bảng đối chiếu ở 0.2). Claude sẽ viết lại trước khi Hiệp học tới.
+**Vì sao cần.** SA có nền AWS (AgilityIO), JD ghi AWS/cloud. **Ranh giới trung thực**: production cloud của Hiệp chủ yếu là **Azure** (PlaySweeps: Functions, Service Bus, Event Hub, Key Vault, App Insights, Cosmos DB, Redis; Joblogic: Azure). AWS dùng trực tiếp: **KMS, S3, SES** ở project Go (Altar). Chiến lược: hiểu **bản chất** từng dịch vụ (vì sao tồn tại, giới hạn, lỗi hay gặp), map sang thứ đã dùng trên Azure, và nói rõ chỗ chưa làm.
 
-SA có AWS (AgilityIO), JD ghi AWS/cloud. Kinh nghiệm thật: Azure (PlaySweeps, Joblogic); AWS **KMS, S3, SES** trên project Go (Altar).
-
-### C11.1 Bảng map
-| Nhu cầu | AWS | Azure (đã dùng) | Ghi chú |
+### C11.1 Bảng đối chiếu (chỉ những gì Ops Hub cần)
+| Nhu cầu | AWS | Azure (đã dùng) | Bản chất cần nói |
 |---|---|---|---|
-| Chạy web app container | **ECS Fargate** / App Runner / EKS | App Service / AKS | Fargate không quản lý server |
-| Chạy web app PaaS | Elastic Beanstalk | App Service | |
-| Function | **Lambda** (.NET 8 runtime, giới hạn 15 phút) | Azure Functions | Cold start |
-| Queue | **SQS** Standard (at-least-once, không đảm bảo thứ tự) / **FIFO** (thứ tự theo message group, dedup 5 phút) | Service Bus queue (session) | Visibility timeout, DLQ (redrive policy) |
-| Pub/sub | **SNS** (+ SQS fan-out) / **EventBridge** (rule, schedule) | Service Bus topic, Event Grid | |
-| DB quan hệ | **RDS** SQL Server / PostgreSQL / **Aurora** | Azure SQL | Multi-AZ, read replica, automated backup, PITR |
-| NoSQL | DynamoDB / DocumentDB | Cosmos DB / Mongo | |
-| Cache | ElastiCache (Redis/Valkey) | Azure Cache for Redis | |
-| File | **S3** + presigned URL, lifecycle, versioning, SSE-KMS | Blob + SAS | Bucket private, Block Public Access |
-| Secret | **Secrets Manager** (xoay vòng) / SSM **Parameter Store** / **KMS** (khoá mã hoá) | Key Vault | |
-| Quyền | **IAM role** (task role cho ECS, execution role cho Lambda), least privilege | Managed Identity + RBAC | Không để access key trong code |
-| Monitoring | **CloudWatch** Logs/Metrics/Alarms + **X-Ray** (hoặc OpenTelemetry → ADOT) | App Insights | |
-| Email / SMS | **SES** / SNS SMS / Pinpoint | SendGrid / Twilio | |
-| API gateway / LB | API Gateway, **ALB**, CloudFront (CDN), WAF | API Management, Front Door, App Gateway | |
-| Lịch chạy job | EventBridge Scheduler | Timer trigger | |
-| Mạng | VPC, subnet public/private, security group, NAT gateway | VNet, NSG | DB ở private subnet |
-| CI/CD | CodePipeline / CodeBuild / CodeDeploy, ECR | Azure DevOps, ACR | |
-| IaC | CloudFormation / CDK / Terraform | ARM / Bicep / Terraform | |
-| Auth người dùng | Cognito | Entra ID / B2C | |
-| Search | OpenSearch | Azure AI Search | |
-| Cấu hình động / feature flag | AppConfig | App Configuration | |
+| Chạy API container | **ECS on Fargate** (App Runner, EKS) | App Service, AKS | Fargate: không quản lý EC2; task = nhóm container, service giữ số task mong muốn |
+| Hàm theo sự kiện | **Lambda** | Azure Functions | Tối đa 15 phút, cold start, concurrency tính theo số request đồng thời |
+| Queue | **SQS** Standard / FIFO | Service Bus queue | Visibility timeout, DLQ qua redrive policy, long polling (`WaitTimeSeconds` ≤ 20) |
+| Pub/sub | **SNS** (fan-out sang SQS), **EventBridge** | Service Bus topic, Event Grid | EventBridge có rule lọc theo nội dung + Scheduler |
+| SQL | **RDS** (SQL Server/PostgreSQL), **Aurora** | Azure SQL | Multi-AZ, read replica, automated backup + PITR |
+| NoSQL | DynamoDB | Cosmos DB | Partition key, capacity on-demand/provisioned |
+| Cache | **ElastiCache** (Redis/Valkey) | Azure Cache for Redis | C4 |
+| File | **S3** | Blob Storage | Presigned URL ≈ SAS; Block Public Access; versioning; lifecycle |
+| Secret / khoá | **Secrets Manager**, SSM Parameter Store, **KMS** | Key Vault | KMS key không xuất được, chỉ gọi Encrypt/Decrypt/Sign (C2) |
+| Danh tính cho service | **IAM role** (ECS task role, Lambda execution role) | Managed Identity | Credential tạm thời, tự xoay; không access key trong code |
+| Giám sát | **CloudWatch** Logs/Metrics/Alarms, **X-Ray**, ADOT (OpenTelemetry) | Application Insights | C9 |
+| Email / SMS | **SES**, SNS SMS / End User Messaging | SendGrid, Twilio | SES có sandbox, cần xác minh domain (SPF/DKIM) |
+| LB / CDN / WAF | **ALB**, NLB, CloudFront, WAF | App Gateway, Front Door | C6 |
+| Mạng | **VPC**, subnet public/private, security group, NAT gateway, VPC endpoint | VNet, NSG, Private Endpoint | DB ở private subnet |
+| IaC | CloudFormation, **CDK**, Terraform | ARM/Bicep, Terraform | |
+| CI/CD | CodePipeline/CodeBuild/CodeDeploy, ECR | Azure DevOps, ACR | C10 |
+| Workflow | **Step Functions** | Durable Functions, Logic Apps | Orchestration saga (C5.7) |
 
 ### C11.2 Kiến trúc tham khảo Ops Hub trên AWS
-- Route 53 → CloudFront (static React) + **ALB** → **ECS Fargate** (ASP.NET Core API/MVC, ≥ 2 task ở 2 AZ, auto scaling theo CPU/request).
-- **RDS SQL Server Multi-AZ** (+ read replica cho báo cáo), **ElastiCache Redis** (cache, rate limit).
-- **S3** (PDF hợp đồng, ảnh giao hàng; private, presigned URL, versioning, lifecycle).
-- **SQS** (+ DLQ) cho việc nền: sinh PDF, gửi email/SMS, đồng bộ bên thứ ba; worker là ECS service hoặc Lambda.
-- **SNS/EventBridge** cho event fan-out; EventBridge Scheduler cho job định kỳ (nhắc thanh toán, hết hạn quote).
-- **Secrets Manager** cho connection string/API key; **IAM task role**; KMS mã hoá.
-- **CloudWatch** logs + alarms, **X-Ray**/OpenTelemetry tracing.
-- SES email, SNS/Pinpoint SMS.
-- Webhook từ bên thứ ba: API Gateway hoặc ALB → endpoint → ghi SQS → xử lý async.
+```
+Route 53 → CloudFront ─┬─ S3 (React build tĩnh)
+                       └─ WAF → ALB → ECS Fargate: API ASP.NET Core (≥2 task, 2 AZ, auto scaling)
+                                         │   ├─ RDS SQL Server Multi-AZ (+ read replica cho báo cáo)
+                                         │   ├─ ElastiCache Redis (cache, rate limit, Data Protection keys)
+                                         │   ├─ S3 private (PDF hợp đồng, ảnh giao hàng)
+                                         │   └─ SQS (+ DLQ) ← outbox relay
+                                         └─ ECS worker / Lambda: sinh PDF, gửi SES/SMS, đồng bộ kế toán
+EventBridge Scheduler → SQS: nhắc thanh toán, hết hạn báo giá
+Webhook provider → ALB/API Gateway → ghi inbox + SQS → xử lý async (C8.4)
+Secrets Manager + KMS, IAM task role; CloudWatch + X-Ray/OpenTelemetry
+```
+- Subnet: ALB ở **public**; ECS, RDS, ElastiCache ở **private**. Task gọi S3/SQS qua **VPC endpoint** để không đi qua NAT gateway (NAT tính phí theo GB, dễ là khoản chi bất ngờ).
+- Security group như firewall theo tài nguyên: RDS chỉ nhận cổng 1433 từ security group của ECS task.
 
-### C11.3 Kiến thức hay hỏi
-- **SQS visibility timeout**: message bị ẩn khi đang xử lý; quá hạn chưa xoá → hiện lại → xử lý lần 2 → consumer idempotent; nhận quá `maxReceiveCount` → DLQ.
-- **SQS vs SNS vs EventBridge**: queue (1 consumer group, kéo) vs pub/sub (đẩy tới nhiều subscriber) vs event bus có rule lọc/định tuyến + schedule.
-- **Lambda vs ECS**: Lambda cho việc ngắn, theo sự kiện, tải không đều (≤ 15 phút, cold start); ECS cho API chạy liên tục, việc dài, cần kiểm soát runtime.
-- **S3 presigned URL**: URL có chữ ký, hết hạn ngắn, cấp quyền GET/PUT một object mà không lộ credential; backend kiểm tra quyền trước khi cấp.
-- **IAM**: user (người) vs role (service đảm nhận, credential tạm thời); policy least privilege; không hard-code key.
-- **RDS Multi-AZ** (sẵn sàng, failover tự động) vs **read replica** (scale đọc, có độ trễ).
-- **Availability Zone vs Region**.
-- Chi phí: NAT gateway, data transfer, CloudWatch logs có thể tốn; Fargate Spot/Savings Plans.
-- .NET SDK: `AWSSDK.S3`, `AWSSDK.SQS`, `Amazon.Extensions.Configuration.SystemsManager`, `AWS.Logger`/Serilog sink, `Amazon.Lambda.AspNetCoreServer`.
+### C11.3 Kiến thức sâu hay bị hỏi
+- **SQS visibility timeout** (C5.2): mặc định 30 s, tối đa 12 giờ; xử lý quá hạn → message hiện lại → xử lý lần 2. Đặt timeout > thời gian xử lý p99, gia hạn bằng `ChangeMessageVisibility` cho việc dài, consumer idempotent. Lambda + SQS: visibility timeout của queue nên ≥ **6 lần** timeout của hàm (khuyến nghị AWS).
+- **SQS Standard vs FIFO**: Standard throughput gần như không giới hạn, **at-least-once**, thứ tự best-effort. FIFO: thứ tự trong **message group**, dedup trong **5 phút** theo `MessageDeduplicationId`, throughput thấp hơn (300 msg/s mỗi API action, 3.000 với batching; high-throughput mode cao hơn).
+- **SQS vs SNS vs EventBridge**: SQS = hàng đợi, consumer **kéo**; SNS = **đẩy** cho nhiều subscriber, thường SNS → nhiều SQS (fan-out) để mỗi subscriber có hàng riêng bền; EventBridge = event bus có **rule lọc theo nội dung**, nhận event từ dịch vụ AWS/SaaS, có Scheduler.
+- **Lambda vs ECS** cho từng việc: sinh PDF ngắn, tải không đều → Lambda (hoặc ECS worker nếu cần thư viện native/font lớn, chạy > 15 phút). API chính chạy liên tục, cần connection pool ổn định → ECS. Lambda mở nhiều connection tới RDS khi scale → dùng **RDS Proxy**.
+- **S3 presigned URL**: backend kiểm quyền (đơn này thuộc tenant/user này) → sinh URL ký có hạn 5–15 phút cho đúng một object, GET hoặc PUT. Trình duyệt upload/tải thẳng S3, không đi qua API (không tốn băng thông, không timeout request lớn). Key object có prefix tenant: `tenants/{tenantId}/contracts/{orderId}.pdf`.
+- **IAM**: user (người, credential dài hạn, nên dùng SSO) vs **role** (được đảm nhận, credential tạm thời qua STS). Policy least privilege: task chỉ `s3:GetObject/PutObject` trên `arn:aws:s3:::opshub-docs/tenants/*`, không `s3:*`.
+- **RDS Multi-AZ vs read replica**: Multi-AZ = bản standby đồng bộ ở AZ khác, **failover tự động** (~1–2 phút), không dùng để đọc (với kiểu triển khai cổ điển). Read replica = **bất đồng bộ**, để **scale đọc**, có lag. RDS SQL Server có read replica ở bản Enterprise.
+- **AZ vs Region**: AZ = các trung tâm dữ liệu độc lập trong một region, độ trễ thấp → chạy ≥ 2 AZ cho HA. Region khác = DR, độ trễ cao, dữ liệu chép bất đồng bộ.
+- **Shared responsibility**: AWS lo hạ tầng vật lý, hypervisor; mình lo cấu hình, IAM, mã hoá, patch app.
+- **Chi phí hay bị quên**: NAT gateway data processing, data transfer ra internet/giữa AZ, CloudWatch Logs ingestion, RDS SQL Server license.
+- **.NET trên AWS**: `AWSSDK.S3`, `AWSSDK.SQS`, `AWSSDK.SecretsManager`, `Amazon.Extensions.Configuration.SystemsManager` (nạp Parameter Store vào `IConfiguration`), `Amazon.Lambda.AspNetCoreServer.Hosting` (chạy ASP.NET Core trong Lambda). SDK tự lấy credential từ task role qua **default credential chain**.
 
-### C11.4 Câu mẫu
-> Most of my production cloud work was on Azure, and I've used AWS directly for KMS, S3 and SES on a Go project. The concepts map closely — Service Bus to SQS and SNS, Functions to Lambda, Key Vault to Secrets Manager, App Insights to CloudWatch and X-Ray — so I'd expect to be productive quickly and I'd learn the team's specific setup first.
+### C11.4 Sống sót khi một AZ chết
+- ECS service trải task trên ≥ 2 AZ; ALB chỉ gửi tới task khỏe.
+- RDS **Multi-AZ** failover; app retry kết nối (EF execution strategy, B3) vì DNS endpoint đổi sang standby.
+- ElastiCache có replica ở AZ khác + automatic failover.
+- S3, SQS, DynamoDB vốn là dịch vụ **regional** (dữ liệu đã chép nhiều AZ).
+- Kiểm thử: AWS Fault Injection Service hoặc game day.
 
-### C11.5 Câu hỏi luyện
-1. How would you host this .NET app on AWS?
-2. SQS vs SNS vs EventBridge?
-3. What's the SQS visibility timeout? What happens if processing takes longer?
-4. Lambda or ECS for the PDF generator? For the main API?
-5. How do you let a user download a private file from S3 securely?
-6. Where do secrets live? How does the app get AWS credentials?
-7. Multi-AZ vs read replica?
-8. How would you monitor the system on AWS?
-9. What AWS services have you actually used?
-10. How would you make the system survive an AZ failure?
-11. How would you receive webhooks reliably on AWS?
+### C11.5 Câu hỏi phỏng vấn & trả lời mẫu
+
+**Q1. What AWS services have you actually used?**
+> Directly, KMS, S3 and SES, on a Go project: KMS for keys that never leave the service, S3 for files and SES for email. Most of my production cloud work was on Azure — Functions, Service Bus, Event Hub, Key Vault, Cosmos DB, Redis and Application Insights. The concepts map closely: Service Bus to SQS and SNS, Functions to Lambda, Key Vault to Secrets Manager and KMS, Managed Identity to IAM roles, Application Insights to CloudWatch and X-Ray. I'd learn the team's setup first rather than assume.
+
+**Q2. How would you host this .NET application on AWS?**
+> The API in containers on ECS Fargate behind an ALB, at least two tasks across two availability zones with auto scaling, in private subnets. RDS SQL Server Multi-AZ, with a read replica if reporting gets heavy; ElastiCache for Redis; S3 for contracts and photos with presigned URLs; SQS with dead-letter queues for background work like PDFs and notifications, processed by an ECS worker or Lambda. Secrets in Secrets Manager, credentials from the task's IAM role, and CloudWatch with OpenTelemetry tracing.
+
+**Q3. What's the SQS visibility timeout, and what if processing takes longer?**
+> When a consumer receives a message, SQS hides it for the visibility timeout instead of deleting it. If the consumer doesn't delete it in time, it becomes visible again and another consumer processes it, so processing longer than the timeout means duplicates. I set the timeout above the p99 processing time, extend it with `ChangeMessageVisibility` for long jobs, make the handler idempotent, and configure a redrive policy so messages that keep failing go to a DLQ.
+
+**Q4. SQS vs SNS vs EventBridge?**
+> SQS is a queue that consumers pull from, for work that one consumer group should process. SNS pushes each message to every subscriber, usually SQS queues, so each subscriber gets its own durable copy — that's fan-out. EventBridge is an event bus with content-based routing rules, integrations with AWS and SaaS sources, and a scheduler. For "order placed" going to three independent handlers, I'd use SNS to SQS or EventBridge to SQS, so each handler can retry on its own.
+
+**Q5. How do you let a user download a private contract PDF from S3?**
+> The bucket stays private. The API checks that the user is allowed to see that order in that tenant, then generates a presigned GET URL for that single object, valid for a few minutes. The browser downloads directly from S3, so no credentials are exposed and the file doesn't stream through our API. Objects are keyed by tenant and encrypted with KMS.
+
+**Q6. How does the application get AWS credentials?**
+> From an IAM role, never from access keys in code or configuration. On ECS that's the task role; the SDK's default credential chain picks up temporary credentials that rotate automatically. The role's policy grants only what the service needs, for example read and write on one bucket prefix and send on one queue.
+
+**Q7. Multi-AZ or read replica?**
+> They solve different problems. Multi-AZ keeps a synchronous standby in another zone for automatic failover, which is about availability. A read replica is asynchronous and serves reads, which is about scaling, with replication lag to account for. A production database usually needs Multi-AZ first; a replica comes when reporting load justifies it.
+
+**Q8. Lambda or ECS for the PDF generator?**
+> If generation takes seconds and load is spiky, Lambda triggered by SQS is simple and scales to zero. If it needs large native dependencies or fonts, runs longer than 15 minutes, or load is steady, an ECS worker reading from SQS is a better fit. Either way, the request that triggers it returns immediately and the user is notified when the document is ready.
+
+### C11.6 Tự kiểm tra
+1. Map 8 dịch vụ Azure Hiệp đã dùng sang AWS.
+2. Vẽ kiến trúc Ops Hub trên AWS, chỉ ra cái gì ở public/private subnet.
+3. Visibility timeout cho SQS + Lambda nên đặt bao nhiêu? Vì sao?
+4. SNS → SQS fan-out giải quyết gì so với một queue chung?
+5. Presigned URL: backend kiểm gì trước khi cấp?
+6. Multi-AZ khác read replica ở 3 điểm.
+7. Vì sao NAT gateway có thể làm hoá đơn tăng, giảm bằng cách nào?
 
 ---
 
-## C12. Multi-tenant SaaS ⏳
+## C12. Multi-tenant SaaS
 
-> ⏳ **Chưa viết lại sâu.** Dưới đây là nội dung bản cũ (số tham chiếu section bên trong là số bản cũ, xem bảng đối chiếu ở 0.2). Claude sẽ viết lại trước khi Hiệp học tới.
+**Vì sao cần.** Ops Hub phục vụ nhiều đại lý/cửa hàng bán nhà kho, nên gần như chắc chắn là multi-tenant (hoặc sẽ thành). Đây là chủ đề Hiệp **mạnh nhất** vì đã đọc và kiểm chứng code Joblogic (`notes/J-multitenant-deep.md`). Mục tiêu: nói được trade-off các mô hình, cơ chế cô lập nhiều lớp, và trả lời tình huống "khách thấy dữ liệu công ty khác". **Ranh giới trung thực**: Hiệp **làm feature** trên nền multi-tenant có sẵn của Joblogic, **không** thiết kế nó.
 
-### C12.1 Ý chốt
-- Mô hình: **Silo** (DB/tenant) – **Bridge** (schema/tenant) – **Pool** (chung bảng, cột TenantId) – **Shard** (pool chia nhiều DB). Trade-off: cô lập/chi phí/vận hành.
-- Tenant context lấy từ **token/claim đăng nhập**, không từ tham số client gửi; đi theo mọi message, job, cache key, file path.
-- Lớp phòng thủ: middleware resolve tenant → global query filter (EF) hoặc RLS/view (DB) → FK kèm TenantId → cache key có tenant → S3 prefix theo tenant → test với 2 tenant.
-- Joblogic: shard theo tenant (ShardKey ở License DB), `SESSION_CONTEXT('TenantId')` đặt mỗi lần mở connection, đọc qua **view `dbo`** lọc tenant, ghi bị **RLS block predicate** chặn, PK/FK `(TenantId, Id)`, Depot là phạm vi con trong tenant.
-- Cấu hình theo tenant (thuế, template, quy trình), **feature theo gói** (Joblogic: 60+ AppModule; FeatureManagement + TargetingFilter theo tenant).
-- **Noisy neighbor**: đo theo tenant (metric có tag tenant), rate limit theo tenant, tách tenant lớn sang shard riêng, replica cho báo cáo, job nền chia lô theo tenant.
-- Migration nhiều shard: expand → deploy → contract theo đợt.
-- Job nền: quét tenant hợp lệ → fan-out message theo tenant.
-- Di chuyển tenant giữa shard: copy → khoá ghi ngắn → copy phần chênh → đổi mapping → xoá cache mapping mọi instance.
+### C12.1 Các mô hình lưu dữ liệu
+| Mô hình | Cách làm | Cô lập | Chi phí / vận hành | Hợp khi |
+|---|---|---|---|---|
+| **Silo** (DB per tenant) | Mỗi tenant một database | Cao nhất; backup/restore từng tenant dễ | Đắt; migration chạy N lần; nhiều connection pool | Ít tenant lớn, yêu cầu tuân thủ, khách enterprise |
+| **Bridge** (schema per tenant) | Một DB, mỗi tenant một schema | Trung bình | Migration N schema; giới hạn số object | Ít gặp với SQL Server |
+| **Pool** (shared tables) | Mọi bảng có `TenantId` | Thấp nhất, phụ thuộc kỷ luật code + DB | Rẻ, một migration | Nhiều tenant nhỏ (SMB) |
+| **Sharded pool** | Pool chia nhiều DB, mỗi shard nhiều tenant; shard map | Như pool, nhưng giới hạn thiệt hại trong shard | Cần shard map, di chuyển tenant | Tăng trưởng lớn: **Joblogic** |
+| **Hybrid** | Tenant nhỏ ở pool, tenant lớn có DB riêng | Theo hợp đồng | Phức tạp hơn | Gói Enterprise trả thêm để có DB riêng |
 
-### C12.2 Câu mẫu
-> At Joblogic, tenant isolation was enforced in the database, not just in application code. When a connection opens, an interceptor sets the tenant ID in SQL Server's session context; the application reads through views that filter by it, and row-level security block predicates stop writes to another tenant's rows. Primary and foreign keys include the tenant ID, so a job can't point to another tenant's customer. For the Ops Hub I'd at least use an EF Core global query filter plus tenant-aware cache keys and S3 prefixes, and add tests that run with two tenants.
+Câu Senior: chọn theo **số tenant, kích thước chênh lệch, yêu cầu cô lập trong hợp đồng, và chi phí vận hành của team**. Với Ops Hub (nhiều đại lý vừa và nhỏ ở Mỹ): bắt đầu **pool** với `TenantId` + lớp phòng thủ ở DB, thiết kế để có thể tách shard sau (TenantId ở đầu khoá).
 
-### C12.3 Câu hỏi luyện
-1. How would you isolate tenant data? Pros and cons of database-per-tenant vs shared tables?
-2. A customer sees another company's order. How do you investigate and prevent it?
-3. One big tenant slows everyone down. What do you do?
-4. How do you roll out a schema change across all tenants?
-5. How do you support per-tenant configuration and features by plan?
-6. Where does the tenant ID come from in a request? Why not from the URL?
-7. How do background jobs know which tenant they're working for?
+### C12.2 Tenant context đến từ đâu
+- Từ **claim trong token/cookie sau đăng nhập** (Joblogic: claim TenantId lấy từ `loginToken.Company.TenantId`), **không** từ query string/body/header client tự gửi. Nếu lấy từ URL (`/tenants/42/orders`) thì vẫn phải **đối chiếu** với claim.
+- Subdomain (`acme.opshub.com`) dùng để chọn trang đăng nhập/branding, không thay cho kiểm quyền.
+- Truyền theo **mọi đường**: HTTP request → `ITenantContext` (Scoped) → message (header/property), job nền, cache key, file path, log/trace tag.
+- Job định kỳ là **tenantless**: lấy danh sách tenant hợp lệ (active, không frozen) → **fan-out một message mỗi tenant** → mỗi message chạy trong context tenant đó (Joblogic làm đúng như vậy). Lợi: một tenant lỗi không chặn tenant khác, chia tải.
+
+### C12.3 Phòng thủ nhiều lớp (defense in depth)
+| Lớp | Cách làm chung | Joblogic (đã kiểm chứng trong code) |
+|---|---|---|
+| Danh tính | TenantId từ claim | Claim từ login token |
+| Middleware | Resolve tenant, chặn tenant inactive | Resolve **ShardKey** từ License DB (có cache), chặn tenant **active/frozen** |
+| Đọc | EF Core **global query filter** `HasQueryFilter(x => x.TenantId == _tenant.Id)` hoặc SQL Server **RLS filter predicate** | Interceptor đặt `SESSION_CONTEXT('TenantId')` mỗi lần mở connection; EF map vào **view `dbo`** lọc theo session context |
+| Ghi | Gán TenantId tự động trong `SaveChanges`; RLS **block predicate** | **RLS block predicate** trên ~416 bảng chặn ghi dòng tenant khác |
+| Toàn vẹn | **PK/FK có TenantId**: `PK(TenantId, Id)`, `FK(TenantId, CustomerId) → Customer(TenantId, Id)` | Đúng như vậy → Job của A không thể trỏ Customer của B |
+| Phạm vi con | Chi nhánh/cửa hàng trong tenant | **Depot** lọc ở view qua `SESSION_CONTEXT('DepotIds')` |
+| Cache | Key có tenant: `t:{tenantId}:taxrate:{zip}` | Key DocGen gồm tenantId + entity + template |
+| File | Prefix theo tenant `tenants/{id}/...` | Blob theo tenant |
+| Feature theo gói | Feature flag theo tenant | `Microsoft.FeatureManagement` + `TargetingFilter` theo TenantId; 60+ AppModule |
+| Test | Test chạy với **2 tenant**, khẳng định không thấy chéo | — |
+
+Vì sao interceptor phải đặt session context **mỗi lần mở connection**: connection được **tái sử dụng từ pool** (A6/C9), nếu không đặt lại có thể mang context của request trước. `sp_set_session_context` có tham số `@read_only = 1` để code sau không đổi được (Joblogic không thấy dùng cờ này).
+
+Điểm yếu của global query filter EF: **raw SQL, Dapper, `IgnoreQueryFilters()`** bỏ qua nó → vì vậy lớp ở DB (RLS/view) mạnh hơn: đúng cho mọi đường truy cập.
+```sql
+CREATE FUNCTION sec.fn_tenant(@TenantId int) RETURNS TABLE WITH SCHEMABINDING AS
+RETURN SELECT 1 AS ok WHERE @TenantId = CAST(SESSION_CONTEXT(N'TenantId') AS int);
+CREATE SECURITY POLICY sec.TenantPolicy
+  ADD FILTER PREDICATE sec.fn_tenant(TenantId) ON dbo.Orders,
+  ADD BLOCK  PREDICATE sec.fn_tenant(TenantId) ON dbo.Orders AFTER INSERT
+WITH (STATE = ON);
+```
+RLS có chi phí: predicate chạy trên mọi truy vấn, cần index bắt đầu bằng `TenantId` để không làm plan tệ đi.
+
+### C12.4 Noisy neighbor và tenant lớn
+- Dấu hiệu: p99 tăng cho mọi người khi một tenant chạy import/báo cáo lớn. Xác nhận bằng **metric/trace có tag tenant** (C9), Query Store theo query.
+- Xử lý: **rate limit theo tenant** (ASP.NET Core rate limiter partition theo tenant), job nền chia lô và giới hạn concurrency theo tenant, báo cáo chạy trên **read replica**, cache theo tenant, **tách tenant lớn sang shard/DB riêng**.
+- **Parameter sniffing** đặc biệt hay gặp trong multi-tenant: plan tạo cho tenant 100 dòng bị dùng cho tenant 5 triệu dòng (C9.4a).
+- Index: khoá clustered bắt đầu bằng `TenantId` (Joblogic: `PK(TenantId, AutoId)`) → dữ liệu một tenant nằm liền nhau, truy vấn theo tenant đọc ít trang.
+
+### C12.5 Vận hành
+- **Migration nhiều shard/DB**: chạy theo đợt (canary shard trước), expand/contract (C10.3) vì có lúc shard đã mới, shard còn cũ; công cụ ghi lại version từng DB.
+- **Onboarding**: tạo tenant, dữ liệu mặc định (thuế, template, quy trình), chọn shard (Joblogic: shard mặc định cấu hình sẵn, có thể chỉ định).
+- **Di chuyển tenant giữa shard**: copy dữ liệu → khoá ghi ngắn → copy phần chênh → đổi shard map → **xoá cache shard map trên mọi instance** → xoá dữ liệu cũ sau khi kiểm.
+- **Xoá/xuất dữ liệu tenant** khi khách rời đi (hợp đồng, quyền riêng tư): pool làm khó hơn silo; cần script xoá theo TenantId và kiểm tra cả cache, file, search index, backup retention.
+- **Cấu hình theo tenant**: mức thuế, template hợp đồng, quy trình duyệt, múi giờ cửa hàng (B9.4) → bảng cấu hình + cache có tenant.
+- **Truy cập hỗ trợ (support impersonation)**: nhân viên hỗ trợ xem dữ liệu tenant phải được ghi audit, có thời hạn, có lý do (C2).
+
+### C12.6 Tình huống: "Khách A thấy đơn hàng của công ty B"
+1. **Mức độ**: coi là **sự cố bảo mật**; giảm thiệt hại ngay (tắt feature/endpoint nghi vấn, xoá cache), báo người phụ trách, xác định có phải thông báo cho khách theo hợp đồng/luật.
+2. **Làm rõ**: tenant khác (công ty khác) hay khách khác **trong cùng tenant** (portal, depot)? Hai loại khác nguyên nhân.
+3. **Nghi vấn cross-tenant theo thứ tự**: query bỏ qua lớp lọc (raw SQL vào bảng gốc, `IgnoreQueryFilters`), job tenantless chạy với quyền bỏ qua policy, **cache/blob/search key thiếu tenant**, session context sai do connection tái sử dụng, message mang sai tenant.
+4. **Intra-tenant**: endpoint lấy theo id mà **không kiểm quyền sở hữu** (IDOR, C2), lỗi phân quyền theo customer/depot.
+5. **Điều tra**: trace/log theo TraceId + TenantId, endpoint và query đã chạy, **audit log** ai đã xem gì (Joblogic lưu audit ở MongoDB), phạm vi dữ liệu đã lộ.
+6. **Sửa và phòng ngừa**: sửa lỗi, test với 2 tenant cho đúng đường đó, cấm truy cập bảng gốc bằng quyền DB, review mọi chỗ bỏ qua bộ lọc, postmortem.
+
+### C12.7 Câu hỏi phỏng vấn & trả lời mẫu
+
+**Q1. How would you isolate tenant data? Database per tenant or shared tables?**
+> It depends on the number of tenants, how different they are in size, and what isolation customers are contractually promised. Database per tenant gives the strongest isolation and easy per-tenant restore, but costs more and every migration runs N times. Shared tables with a tenant ID are cheap and simple to operate but depend on enforcing the filter everywhere. Joblogic used a middle ground: a sharded pool, where a shard map in the license database points each tenant to a shard holding many tenants. For the Ops Hub I'd start with shared tables, put the tenant ID first in keys, enforce isolation in the database, and keep the option to move a large tenant to its own database later.
+
+**Q2. How do you make sure a query can't return another tenant's data?**
+> Several layers, so one mistake isn't enough. The tenant ID comes from the authenticated claim, never from the client's input. EF Core gets a global query filter, but because raw SQL and Dapper bypass that, I also enforce it in SQL Server: set the tenant in `SESSION_CONTEXT` whenever a connection opens and use row-level security, or views, to filter reads and block writes. Joblogic does exactly that — reads go through views filtered by session context and RLS block predicates stop writes — and primary and foreign keys include the tenant ID, so a job can't reference another tenant's customer. Cache keys and file paths include the tenant, and we test with two tenants.
+
+**Q3. A customer reports seeing another company's order. What do you do?**
+> Treat it as a security incident: contain it first — disable the endpoint or feature and clear caches — and inform whoever owns incident response, since there may be notification obligations. Then establish whether it's cross-tenant or another customer within the same tenant. For cross-tenant I'd look for code that bypasses the filter — raw SQL on base tables, ignored query filters, a system job with elevated access — and for cache, blob or search keys missing the tenant. Traces and the audit log show what was accessed and by whom. The fix comes with a two-tenant test for that path and a review of every place that bypasses isolation.
+
+**Q4. One large tenant slows everyone down. What do you do?**
+> First confirm it with metrics tagged by tenant. Short term: rate limit that tenant's heavy operations, move its reports to a read replica, and limit how many of its background jobs run at once. Longer term: fix the queries, watch for parameter sniffing between small and large tenants, and if it's structurally large, move it to its own shard or database, which a tenant-first key design makes possible.
+
+**Q5. How do background jobs know which tenant they're working for?**
+> A scheduled job starts without a tenant, lists the active tenants, and fans out one message per tenant carrying the tenant ID. Each handler sets up the tenant context from the message before touching data, exactly as a web request does from the claim. That isolates failures per tenant and spreads the load. Joblogic's timers work this way.
+
+**Q6. How do you roll out a schema change across many tenant databases?**
+> Expand and contract, because during the rollout some databases are on the new schema and some aren't, and the application must work with both. I'd migrate a canary shard first, then the rest in batches, track the schema version per database, and only remove old columns in a later release once every database and every app instance has moved on.
+
+### C12.8 Tự kiểm tra
+1. So sánh silo, pool, sharded pool theo cô lập, chi phí, migration.
+2. TenantId nên lấy từ đâu? Vì sao không tin URL?
+3. Vì sao global query filter của EF chưa đủ? Lớp nào bổ sung?
+4. Vì sao phải đặt `SESSION_CONTEXT` mỗi lần mở connection?
+5. FK có TenantId ngăn được lỗi gì?
+6. Job định kỳ trong multi-tenant chạy thế nào?
+7. Sáu bước xử lý "khách thấy đơn của công ty khác".
 
 ---
 
-## C13. System design nhỏ ⏳
+## C13. System design cho Ops Hub
 
-> ⏳ **Chưa viết lại sâu.** Dưới đây là nội dung bản cũ (số tham chiếu section bên trong là số bản cũ, xem bảng đối chiếu ở 0.2). Claude sẽ viết lại trước khi Hiệp học tới.
+**Vì sao cần.** Vòng tech với SA có thể có một câu thiết kế 15–30 phút ("Design delivery scheduling"). SA không chấm sơ đồ đẹp; họ chấm: **có hỏi lại yêu cầu không**, có **ước lượng con số** để biết rủi ro thật nằm ở đâu, có nhìn ra **điểm khó** (overbook, tiền, thời gian, tích hợp lỗi) và giải bằng cơ chế cụ thể (A6, C3, C5, C8), có nói **trade-off**. Phần này dùng lại mọi thứ ở A–C.
 
-Khung 45 phút (rút gọn 15–20 phút nếu hỏi trong vòng tech):
-1. **Làm rõ yêu cầu** (chức năng + phi chức năng: số tenant, số đơn/ngày, độ trễ, độ chính xác tiền).
-2. **Ước lượng** con số (vd. 500 công ty × 20 đơn/ngày = 10k đơn/ngày ≈ 0,1 đơn/giây trung bình → tải thấp, rủi ro là **đúng** chứ không phải **nhanh**).
-3. **API + mô hình dữ liệu**.
-4. **Kiến trúc** (sơ đồ), luồng chính.
-5. **Điểm khó**: concurrency, idempotency, thời gian, tiền, lỗi tích hợp.
-6. **Vận hành**: monitor, scale, bảo mật, test.
-7. **Trade-off** và cái sẽ làm sau.
+### C13.1 Khung trả lời (dùng cho mọi đề)
+1. **Làm rõ yêu cầu (2–4 phút)**: chức năng chính (ai làm gì), phi chức năng (số tenant, số đơn/ngày, độ trễ chấp nhận, mức chính xác về tiền/sức chứa, cần offline không, tích hợp nào). Nói ra **giả định** nếu người hỏi để mình tự chọn.
+2. **Ước lượng**: đổi ra RPS và dung lượng. Ví dụ: 500 đại lý × 20 đơn/ngày = 10.000 đơn/ngày ≈ **0,12 đơn/s** trung bình, đỉnh ×10 ≈ 1,2/s. Kết luận: **tải không phải vấn đề, đúng đắn mới là vấn đề** → một SQL Server và modular monolith thừa sức; không đề xuất Kafka/microservices.
+3. **API và mô hình dữ liệu**: 3–6 endpoint chính, bảng chính với khoá và ràng buộc (UNIQUE, CHECK).
+4. **Kiến trúc và luồng chính**: sơ đồ đơn giản, đi một request từ đầu đến cuối.
+5. **Điểm khó**: concurrency, idempotency, thời gian/timezone, tiền, lỗi tích hợp, dữ liệu lớn.
+6. **Vận hành**: giám sát, bảo mật, test, triển khai.
+7. **Trade-off và bước tiếp theo**: cái gì làm sau khi tải ×10, cái gì cố ý không làm bây giờ.
 
-### C13.1 Đề 1: Lên lịch giao hàng (delivery scheduling)
-- Yêu cầu: chọn ngày giao, tài xế/xe, tối đa N đơn/xe/ngày, vùng giao, thông báo khách, driver app xác nhận.
-- Dữ liệu: `Delivery(OrderId UNIQUE, Date date, StoreTimeZone, TruckId, DriverId, Status, Window)`, `TruckDayCapacity(TruckId, Date, Booked, Max)`.
-- Chống overbook: `UPDATE TruckDayCapacity SET Booked = Booked + 1 WHERE TruckId=@t AND Date=@d AND Booked < Max` (rowcount = 0 → hết chỗ), cùng transaction với tạo Delivery.
-- Đổi lịch: giải phóng chỗ cũ + giữ chỗ mới trong một transaction; event → push driver app + SMS khách (outbox).
-- Thời gian: `date` + timezone cửa hàng; DST.
-- Driver app offline: version số cho delivery, đồng bộ lại, xung đột → văn phòng thắng + báo tài xế.
+Lỗi hay mắc: nhảy vào vẽ ngay, chọn công nghệ trước khi biết tải, bỏ qua tiền/thời gian, không nói cách xử lý khi một phần hỏng.
 
-### C13.2 Đề 2: Lịch trả góp RTO
-- Input: tổng, số kỳ, phí ban đầu, ngày bắt đầu, provider.
-- Sinh lịch: chia đều làm tròn 2 số, **kỳ cuối bù**; ngày đến hạn theo lịch (ngày 31 → cuối tháng); lưu snapshot lịch trong contract.
-- Strategy theo provider; provider có thể là nguồn sự thật → mình chỉ lưu bản sao + đối soát.
-- Thanh toán từng kỳ qua webhook → ledger, idempotent; trễ hạn → job nhắc (EventBridge Scheduler), phí trễ theo luật provider.
-- Test: tổng = hợp đồng, tháng 2, năm nhuận, DST không ảnh hưởng ngày lịch.
+### C13.2 Đề mẫu đầy đủ: Lên lịch giao hàng có giới hạn sức chứa xe
+**Làm rõ**: mỗi xe giao tối đa N nhà kho/ngày (nhà kho to, một xe một chuyến/ngày cũng có); khách chọn ngày, văn phòng gán xe/tài xế; đổi lịch được; tài xế dùng app trên điện thoại, có khi mất sóng; khách nhận SMS nhắc trước 1 ngày; cửa hàng ở nhiều bang/múi giờ.
 
-### C13.3 Đề 3: Sinh tài liệu PDF (quote/contract/invoice)
-- API: `POST /orders/{id}/documents` → 202 + job id; `GET /documents/{id}` → trạng thái + presigned URL.
-- Worker (SQS → ECS/Lambda): lấy document model đã tính (domain lo nghiệp vụ), chọn template tenant → fallback hệ thống, render (QuestPDF/HTML→PDF), lưu S3 (`tenant/{id}/orders/{id}/...`), cập nhật trạng thái.
-- Cache theo checksum dữ liệu + template version; tài liệu đã ký bất biến (hash).
-- Lỗi ký tự đặc biệt: escape, font Unicode; test với dữ liệu xấu.
-- Scale: nhiều worker, giới hạn đồng thời; DLQ cho job lỗi.
+**Ước lượng**: 10.000 đơn/ngày toàn hệ thống, mỗi đơn đặt/đổi lịch 1–3 lần → vài chục nghìn thao tác/ngày. Tranh chấp tập trung vào **ngày đẹp** (thứ Bảy, đầu mùa) của **một vùng** → vấn đề là **overbook**, không phải throughput.
 
-### C13.4 Đề 4: Notification (email/SMS khi trạng thái đơn đổi)
-- Domain event (OrderScheduled, OrderDelivered) → outbox → queue → notification service → chọn kênh theo cấu hình tenant + opt-in khách → template → SES/SNS/Twilio.
-- Idempotent theo (eventId, recipient, channel); retry backoff; DLQ; log trạng thái gửi (delivered/bounced).
-- Giờ yên lặng theo timezone khách; rate limit theo provider.
+**Dữ liệu**:
+```sql
+CREATE TABLE TruckDay (
+  TenantId int, TruckId int, DeliveryDate date,       -- ngày lịch theo giờ cửa hàng, không phải DateTime UTC
+  Capacity tinyint NOT NULL, Booked tinyint NOT NULL DEFAULT 0,
+  CONSTRAINT PK_TruckDay PRIMARY KEY (TenantId, TruckId, DeliveryDate),
+  CONSTRAINT CK_TruckDay CHECK (Booked BETWEEN 0 AND Capacity));
+CREATE TABLE Delivery (
+  TenantId int, Id bigint, OrderId bigint NOT NULL, TruckId int NULL, DeliveryDate date NOT NULL,
+  TimeWindow varchar(20), Status varchar(20), Version rowversion,
+  CONSTRAINT UQ_Delivery_Order UNIQUE (TenantId, OrderId));  -- một đơn một lịch giao đang hoạt động
+```
+**API**: `GET /availability?zip=&from=&to=` (ngày còn chỗ) · `POST /orders/{id}/delivery` (đặt, có `Idempotency-Key`) · `PUT /deliveries/{id}` (đổi, `If-Match`) · `POST /deliveries/{id}/events` (driver app gửi: started, delivered, ảnh, chữ ký).
 
-### C13.5 Đề 5: Payment API / ghi nhận thanh toán
-- `POST /orders/{id}/payments` với Idempotency-Key → tạo payment intent ở provider → webhook xác nhận → ledger → cập nhật balance due.
-- Không tin client; số tiền tính từ server; trạng thái Pending → Succeeded/Failed; đối soát hằng ngày.
-- Chất liệu thật: Pragmatic wallet, Nexus, Stripe ở Joblogic Payment service.
+**Chống overbook** (điểm khó số 1, A6/C3):
+```sql
+BEGIN TRAN;  -- SET XACT_ABORT ON
+UPDATE TruckDay SET Booked = Booked + 1
+ WHERE TenantId=@t AND TruckId=@truck AND DeliveryDate=@d AND Booked < Capacity;
+IF @@ROWCOUNT = 0 BEGIN ROLLBACK; THROW 50001, 'Full', 1; END   -- API trả 409 + gợi ý ngày khác
+INSERT Delivery (...);   -- UNIQUE(OrderId) chặn đặt hai lần
+INSERT Outbox (...);     -- DeliveryScheduled → SMS, driver app
+COMMIT;
+```
+Hai người cùng giành chỗ cuối: request thứ hai chờ row lock, rồi đánh giá lại `Booked < Capacity` trên giá trị đã commit → 0 dòng → 409. Không cần Redis lock. Màn hình "còn chỗ" chỉ là gợi ý (có thể cũ vài giây); **chốt** mới kiểm.
 
-### C13.6 Đề khác trong question bank (biết khung)
-Rate limiter đa instance (Redis sliding window/token bucket, Lua script atomic), order processing, file upload service (presigned PUT, quét virus, metadata), URL shortener (ít liên quan).
+**Đổi lịch**: một transaction: giảm `Booked` ngày cũ, tăng có điều kiện ngày mới, cập nhật Delivery với kiểm `rowversion` (hai nhân viên cùng sửa → 412/409). Khoá các dòng `TruckDay` theo **thứ tự cố định** (TruckId, Date) để tránh deadlock (A6).
 
-### C13.7 Câu hỏi luyện
-1. Design delivery scheduling with truck capacity limits.
-2. Design an RTO payment schedule and payment tracking.
-3. Design PDF document generation for quotes and contracts.
-4. Design notifications when an order's status changes.
-5. Design a payment API.
-6. Design a rate limiter for a multi-instance API.
-7. How would you design the system for 10× more companies?
+**Thời gian** (điểm khó số 2): ngày giao là **ngày lịch** (`date`) theo giờ **cửa hàng**, lưu `TimeZoneId` của cửa hàng (IANA `America/Chicago`). SMS "nhắc trước 1 ngày lúc 17:00 giờ khách" tính từ ngày lịch + timezone, chú ý DST. Không lưu ngày giao là `DateTime` UTC nửa đêm (lệch ngày khi hiển thị ở bang khác).
+
+**Driver app offline** (điểm khó số 3): app lưu sự kiện cục bộ, gửi lại khi có sóng với **event id do app sinh** (idempotent, UNIQUE). Văn phòng đổi lịch trong lúc tài xế offline → khi đồng bộ, server so version; quy tắc xung đột rõ ràng (văn phòng thắng cho lịch, tài xế thắng cho "đã giao" kèm ảnh/GPS), báo cả hai bên.
+
+**Thông báo**: outbox → queue → notification worker; idempotent theo `(deliveryId, type, scheduleVersion)` (C3.3), đổi lịch thì version mới, SMS cũ huỷ.
+
+**Vận hành**: metric số lần 409 "full" theo vùng (tín hiệu cần thêm xe), độ trễ outbox, SMS lỗi; test concurrency (hai request song song giành chỗ cuối, Testcontainers SQL thật, B8).
+
+**Trade-off**: chưa cần tối ưu tuyến đường (bài toán VRP, mua dịch vụ ngoài nếu cần); khi tăng ×10 vẫn một DB, thêm read model cho màn hình availability nếu nặng.
+
+### C13.3 Các đề khác: điểm khó và cơ chế
+**Lịch trả góp RTO (rent-to-own)**
+- Sinh lịch: chia đều làm tròn 2 chữ số, **kỳ cuối bù phần lệch** (tổng các kỳ = tổng hợp đồng, test bằng property-based test); ngày đến hạn 31 → cuối tháng ngắn; `decimal`, làm tròn `MidpointRounding.AwayFromZero` nếu nghiệp vụ yêu cầu (mặc định .NET là banker's rounding, A3).
+- Lưu **snapshot lịch** trong hợp đồng (đổi công thức sau này không đổi hợp đồng cũ).
+- Provider RTO thường là **nguồn sự thật** cho khoản trả góp → mình lưu bản sao, nhận webhook (C8.4), **đối soát** hằng ngày.
+- Thanh toán từng kỳ → **ledger append-only** (C2), số dư còn lại = tính từ ledger.
+
+**Sinh PDF báo giá/hợp đồng**
+- `POST /orders/{id}/documents` → **202** + documentId; worker từ queue render (QuestPDF hoặc HTML → PDF), lưu S3 `tenants/{t}/orders/{o}/contract-v3.pdf`, cập nhật trạng thái; UI poll hoặc SignalR (B9.4); tải bằng presigned URL (C11).
+- Dữ liệu đưa vào template là **document model đã tính xong** (domain tính giá, không tính trong template).
+- Hợp đồng đã ký **bất biến**: lưu hash SHA-256, phiên bản template; sửa = phiên bản mới.
+- Giới hạn concurrency worker (render tốn CPU/RAM), DLQ, font Unicode, escape dữ liệu.
+
+**Thông báo khi đơn đổi trạng thái**
+- Domain event → outbox → queue → notification service: chọn kênh theo cấu hình tenant + **opt-in** của khách (luật SMS ở Mỹ, TCPA: cần đồng ý, hỗ trợ STOP) → template → SES/Twilio.
+- Idempotent theo `(eventId, recipient, channel)`; retry backoff; lưu trạng thái gửi (delivered, bounced) từ webhook của provider; giờ yên lặng theo timezone khách.
+
+**Payment API**
+- `POST /orders/{id}/payments` + `Idempotency-Key` → server **tự tính số tiền** (không tin client) → tạo payment intent ở provider với idempotency key → trạng thái `Pending` → webhook xác nhận → ghi ledger, cập nhật số còn nợ → đối soát hằng ngày.
+- Chất liệu thật: Pragmatic wallet (idempotency, replay), Nexus (số dư là nguồn sự thật ở dịch vụ khác), Stripe ở Joblogic Payment service (đã đọc).
+
+**Rate limiter nhiều instance**
+| Thuật toán | Cách làm | Ưu / nhược |
+|---|---|---|
+| Fixed window | Đếm theo phút `INCR rl:{key}:{minute}` + EXPIRE | Đơn giản; cho phép ×2 ở ranh giới phút |
+| Sliding window log | Sorted set lưu timestamp từng request | Chính xác; tốn RAM |
+| Sliding window counter | Trộn hai cửa sổ theo tỉ lệ | Gần đúng, rẻ |
+| **Token bucket** | Xô N token, nạp r token/s, mỗi request lấy 1 | Cho phép burst có kiểm soát; phổ biến |
+| Leaky bucket | Hàng đợi chảy đều | Làm mượt đầu ra |
+- Nhiều instance → trạng thái ở Redis, tính và ghi trong **một Lua script** (atomic, C4.1). ASP.NET Core có `AddRateLimiter` (fixed, sliding, token bucket, concurrency) nhưng **trong process** → mỗi instance một bộ đếm (C3.6). Trả **429** + `Retry-After`. Redis chết → thường fail-open (C4.5).
+
+**Thiết kế cho ×10 công ty**
+- Đo trước: nút thắt ở đâu (C9). Thứ tự: query/index → cache → background job → scale web ngang → read replica → tách tenant lớn/shard (C6.2, C12.4). Không tách microservices chỉ vì "×10".
+
+### C13.4 Câu hỏi phỏng vấn & trả lời mẫu
+
+**Q1. Design delivery scheduling with a capacity limit per truck per day.** (bản nói trong ~2 phút)
+> Let me check assumptions: each truck can take N sheds a day, customers pick a date, the office assigns trucks, drivers use a mobile app that can go offline, and stores are in different time zones. Volume is small — around ten thousand orders a day — so the risk is correctness, not throughput, and one SQL database in a modular monolith is enough. The core table is truck-day capacity with a booked count and a check constraint. Booking is a conditional update — increment where booked is below capacity — and if no row changes, the day is full and the API returns 409 with alternatives; two people racing for the last slot are serialised by the row lock. In the same transaction I insert the delivery, with a unique constraint on the order, and an outbox event for the SMS and the driver app. Delivery dates are calendar dates in the store's time zone, not UTC timestamps. Rescheduling releases and reserves in one transaction with a row-version check. Driver events carry IDs generated on the device so offline retries are idempotent. Later, if the availability screen gets heavy, I'd add a read model; route optimisation I'd buy rather than build.
+
+**Q2. How would you design a rate limiter for an API running on several instances?**
+> The in-process ASP.NET Core rate limiter counts per instance, so with five instances the real limit is five times higher. I'd keep the state in Redis and use a token bucket or sliding window, updated in a single Lua script so the read-and-update is atomic. The key is per tenant or per API key, the response is 429 with `Retry-After`, and if Redis is unavailable I'd fail open with a local limiter as a fallback, because blocking every user is worse than briefly allowing more.
+
+**Q3. Design PDF generation for quotes and contracts.**
+> The request returns 202 with a document ID, and a worker picks the job from a queue, so a slow render never ties up web requests. The worker gets a fully calculated document model — pricing stays in the domain, not the template — renders it, stores it in S3 under a tenant prefix, and marks it ready; the UI is notified through SignalR or polls, and downloads through a short-lived presigned URL. Signed contracts are immutable: we store the template version and a hash. Worker concurrency is limited because rendering is CPU- and memory-heavy, and failures go to a dead-letter queue.
+
+**Q4. How would you scale this design for ten times more customers?**
+> I'd measure first to see what actually limits us. Ten times our volume is still about one order a second, so the likely pressure points are heavy reports and a few large tenants rather than the booking path. In order: fix queries and indexes, cache read-heavy data, keep slow work in background workers, scale the stateless web tier, move reporting to a read replica, and move very large tenants to their own shard. I wouldn't split into microservices just for volume.
+
+### C13.5 Tự kiểm tra
+1. Đọc thuộc khung 7 bước.
+2. Ước lượng 500 đại lý × 20 đơn/ngày ra RPS; kết luận gì cho kiến trúc?
+3. Viết lại câu UPDATE chống overbook và giải thích vì sao đúng khi hai request cùng lúc.
+4. Vì sao ngày giao là `date` + timezone cửa hàng, không phải `DateTime` UTC?
+5. Driver app offline gửi lại sự kiện: chống trùng thế nào?
+6. Lịch trả góp: tổng các kỳ lệch 1 cent, xử lý ra sao?
+7. Token bucket vs fixed window; vì sao rate limiter trong process sai khi có 5 instance?
 
 ---
 
