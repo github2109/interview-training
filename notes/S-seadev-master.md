@@ -30,11 +30,11 @@ Ký hiệu trạng thái: ⬜ chưa học · 📖 đang học · ✅ xong (đã 
 | B2 | ASP.NET MVC: model binding, validation, CSRF, over-posting, PRG | SA | Cao 60% | ⬜ |
 | B3 | EF Core và Dapper: tracking, N+1, split query, concurrency, migration | SA | Cao 70% | ⬜ |
 | B4 | REST API design | SA | Rất cao 85% | ⬜ |
-| B5 | OOP, SOLID, layering, kiến trúc tổng thể | SA | Rất cao 90% | ⏳ |
-| B6 | Design patterns | SA | Cao 80% | ⏳ |
-| B7 | Clean code và code review | SA | Rất cao 80% | ⏳ |
-| B8 | Unit test, integration test | SA | Cao 65% | ⏳ |
-| B9 | Frontend (React/TS) và hợp đồng FE–BE | SA | Trung bình–Cao 60% | ⏳ |
+| B5 | OOP, SOLID, layering, kiến trúc tổng thể | SA | Rất cao 90% | ⬜ |
+| B6 | Design patterns | SA | Cao 80% | ⬜ |
+| B7 | Clean code và code review | SA | Rất cao 80% | ⬜ |
+| B8 | Unit test, integration test | SA | Cao 65% | ⬜ |
+| B9 | Frontend (React/TS) và hợp đồng FE–BE | SA | Trung bình–Cao 60% | ⬜ |
 | **C** | **HỆ THỐNG VÀ VẬN HÀNH (NÂNG CAO)** | | | |
 | C1 | Authentication: stateful vs stateless, session cookie vs JWT, refresh, revoke | SA | Cao (Agapi đã hỏi) | ⏳ |
 | C2 | Security: OWASP, secret, bảo vệ tiền trước người nội bộ | SA | Trung bình–Cao | ⏳ |
@@ -1496,163 +1496,305 @@ POST /orders/981/cancel   body { reason }   If-Match: "..."
 
 ---
 
-## B5. OOP, SOLID, layering, kiến trúc tổng thể ⏳
+## B5. OOP, SOLID, layering và kiến trúc tổng thể
 
-> ⏳ **Chưa viết lại sâu.** Dưới đây là nội dung bản cũ (số tham chiếu section bên trong là số bản cũ, xem bảng đối chiếu ở 0.2). Claude sẽ viết lại trước khi Hiệp học tới.
+**Vì sao cần.** JD nhấn "clean, testable, well-structured code, solid architectural patterns… stable and scalable as it grows" — đây là đất của SA. Câu hỏi: "cấu trúc solution .NET thế nào", "business logic nằm ở đâu", "SOLID bằng ví dụ thật", "monolith hay microservices cho Ops Hub". Câu trả lời Mid đọc định nghĩa; Senior nói **vì sao** (cái giá khi vi phạm) và **khi nào không cần**.
 
-JD nhấn: "clean, testable, well-structured code, solid architectural patterns… stable and scalable as it grows". Đây là đất của SA.
+### B5.1 Vì sao phải chia tầng: phụ thuộc và lý do thay đổi
+Code bị "rối" vì **mọi thứ phụ thuộc mọi thứ**: controller gọi SQL, view tính giá, service gọi thẳng `new AmazonS3Client()`. Hậu quả: đổi một chỗ vỡ chỗ khác, không test được nếu không có DB thật, không ai dám sửa.
+Chia tầng (layering) để **tách các lý do thay đổi** và **kiểm soát hướng phụ thuộc**:
+```
+Presentation (Controller, Razor, API DTO)
+        ↓ gọi
+Application (use case / handler: điều phối, transaction, gọi port, kiểm quyền)
+        ↓ dùng
+Domain (entity, value object, luật nghiệp vụ, domain event)  ← không phụ thuộc ai
+        ↑ implement interface do Domain/Application định nghĩa
+Infrastructure (EF Core, Dapper, S3, SES, HTTP client tới RTO provider, Redis)
+```
+- **Dependency Inversion**: tầng nghiệp vụ định nghĩa `IDocumentStorage`, `ITaxRateProvider`, `IRtoProvider`; tầng hạ tầng implement (`S3DocumentStorage`). Đổi S3 sang Azure Blob = viết class mới, nghiệp vụ không đổi; unit test thay bằng fake.
+- **Controller mỏng**: bind → gọi handler → map Result ra HTTP. Không tính giá trong controller hay Razor view.
+- **Vertical slice**: tổ chức theo **tính năng** (`Features/Quotes/Finalize/{Command, Handler, Validator, Endpoint}`) thay vì theo tầng kỹ thuật (`Controllers/`, `Services/`, `Repositories/` mỗi thư mục 200 file). Dễ tìm, sửa một feature ít đụng feature khác. Không giáo điều: handler được dùng `DbContext` trực tiếp.
+- Ví dụ thật: Joblogic: Web MVC → message → handler `IHandler<TMsg, OneOf<TRes, Error>>` → service → EF/Dapper; PlaySweeps: repository bọc stored procedure Dapper, DI bằng Autofac.
 
-### B5.1 Clean architecture / layering
-- **Presentation** (Controller, Razor, API) → **Application** (use case, handler, validation, transaction, gọi port) → **Domain** (entity, value object, luật nghiệp vụ, domain event) ← **Infrastructure** (EF, S3, email, payment, HTTP client). Domain **không** phụ thuộc Infrastructure: interface do tầng nghiệp vụ định nghĩa (`IDocumentStorage`, `ITaxCalculator`), hạ tầng implement (**Dependency Inversion**).
-- Controller mỏng: nhận request → gọi handler → map kết quả ra HTTP. Không để logic tính giá trong controller hay Razor view.
-- **Vertical slice**: tổ chức theo feature (`Quotes/Finalize`, `Orders/Cancel`) thay vì theo tầng kỹ thuật; mỗi slice có handler, validator, DTO. Không giáo điều: handler được dùng `DbContext` trực tiếp.
-- Ví dụ thật: Joblogic Web MVC → message → `IHandler<TMsg, OneOf<TRes, Error>>` → service → EF/Dapper. PlaySweeps: repository bọc stored procedure Dapper, DI bằng Autofac.
-- **DTO vs domain model vs persistence model**: DTO là hợp đồng API (ổn định, chỉ field cần), domain model chứa luật, persistence model là cách lưu. Với EF thường gộp domain + persistence, nhưng **không trả entity ra API** (lộ dữ liệu, over-posting, khoá schema, vòng tham chiếu, lazy N+1).
-
-### B5.2 SOLID — một câu mỗi chữ + ví dụ Ops Hub
-- **S** (Single Responsibility): `QuotePricingService` chỉ tính giá; `QuotePdfRenderer` chỉ render. Lý do thay đổi khác nhau → class khác nhau.
-- **O** (Open/Closed): thêm RTO provider/loại thuế mới bằng class mới implement interface, không sửa `if/else` lớn.
-- **L** (Liskov): mọi `IPaymentProvider` trả kết quả cùng ngữ nghĩa; không có provider nào throw `NotSupportedException` cho một method trong interface.
-- **I** (Interface Segregation): tách `IQuoteReader` / `IQuoteWriter` thay vì repository khổng lồ 40 method.
-- **D** (Dependency Inversion): handler phụ thuộc `TimeProvider`, `ITaxCalculator`, `IDocumentStorage`; không `DateTime.Now`, không `new AmazonS3Client()` → **testable**.
-
-### B5.3 Monolith vs microservices
-| | Modular monolith | Microservices |
-|---|---|---|
-| Transaction | Đơn giản (1 DB) | Phân tán: outbox, saga, eventual consistency |
-| Deploy | Một artifact | Độc lập từng service |
-| Vận hành | Dễ | Cần observability, service discovery, versioning contract |
-| Hợp khi | Team nhỏ–vừa, domain còn thay đổi | Nhiều team, scale khác nhau, ranh giới domain rõ |
-Câu mẫu:
-> For a system like the Ops Hub I'd start with a well-structured modular monolith rather than microservices: clear modules for Quotes, Orders, Contracts, Production and Delivery, each with its own application layer, and communication through interfaces or in-process events. That keeps transactions simple, which matters when money and contracts are involved. To keep it scalable I'd keep the web tier stateless so it can scale horizontally behind a load balancer, push slow work like PDF generation, emails and third-party sync to background workers through a queue, add read replicas or caching for heavy reports, and watch the database with proper indexes and query monitoring. I'd only split a module into a separate service when there's a real reason, like a different scaling profile or a separate team.
-Câu đối chiếu kinh nghiệm: Joblogic có ~30 service (team lớn, sản phẩm lâu năm) — Hiệp đã thấy cả lợi (deploy độc lập, scale theo trigger) lẫn chi phí (contract NuGet chung, message trùng phải idempotent, debug xuyên service cần OperationId).
-
-### B5.4 Scale & sẵn sàng (stable and scalable)
-- **Horizontal vs vertical**: vertical = máy to hơn (giới hạn, downtime); horizontal = nhiều instance (cần stateless: session/cache ra Redis, file ra S3).
-- **Stateless web tier** + load balancer + health check; **background worker** cho việc chậm; **queue** để san tải; **cache** cho dữ liệu đọc nhiều; **read replica** cho báo cáo; **index + query tuning** trước khi nghĩ shard.
-- **Một instance chết**: ≥ 2 instance ở 2 AZ, health check gỡ instance lỗi, graceful shutdown (dừng nhận request, xử lý xong việc dở), job nền idempotent để instance khác chạy lại được.
-- **Zero-downtime deploy**: rolling/blue-green + migration expand/contract (section 15, 20).
-- **Scalability vs performance vs availability vs reliability**: scalability = chịu tải tăng khi thêm tài nguyên; performance = nhanh với tải hiện tại; availability = % thời gian phục vụ được; reliability = làm đúng, không mất dữ liệu.
-- **Eventual consistency**: các bản sao/hệ thống sẽ khớp sau một khoảng thời gian. Ví dụ: read model search, báo cáo, số liệu dashboard. **Không** chấp nhận cho số dư/tiền đã thu.
-- **CAP thực tế**: khi mạng phân vùng phải chọn trả lời (có thể sai/cũ) hay từ chối. Với tiền → ưu tiên đúng (consistency); với catalog/hiển thị → ưu tiên sẵn sàng.
-
-### B5.5 Câu hỏi luyện (SA)
-1. How would you structure a .NET solution for this product? Where does business logic live?
-2. Explain SOLID with examples from your work.
-3. Monolith or microservices for the Ops Hub? Why?
-4. How do you make the system stable and scalable as it grows?
-5. What's the difference between a DTO, a domain model and a persistence model? Should a controller return an EF entity?
-6. What is dependency inversion and how does it make code testable?
-7. How would you design the system so it survives one instance dying?
-8. Where would this architecture break first if traffic grew 10×?
-9. What's eventual consistency? Where is it acceptable in the Ops Hub and where isn't it?
-10. How would you introduce a big architectural change (e.g. move PDF generation to a worker) into a running production system? → strangler, feature flag, chạy song song, đo, chuyển dần, có đường quay lại.
-11. Describe an architecture you'd be comfortable owning in production.
-12. When would you choose vertical slices over classic layers?
-
----
-
-## B6. Design patterns ⏳
-
-> ⏳ **Chưa viết lại sâu.** Dưới đây là nội dung bản cũ (số tham chiếu section bên trong là số bản cũ, xem bảng đối chiếu ở 0.2). Claude sẽ viết lại trước khi Hiệp học tới.
-
-Nguyên tắc: **vấn đề → pattern → ví dụ thật/Ops Hub → trade-off**. Đừng đọc định nghĩa sách.
-
-### B6.1 Bảng pattern
-| Pattern | Khi nào | Ví dụ để kể | Trade-off |
-|---|---|---|---|
-| **Strategy** | Nhiều thuật toán đổi được theo cấu hình | Tính giá theo loại sản phẩm; RTO provider khác nhau tính lịch trả khác nhau; Joblogic selling rate theo khung giờ/holiday | Thêm class; đáng khi có ≥ 2 biến thể thật |
-| **State / state machine** | Thực thể có vòng đời, mỗi trạng thái cho phép hành động khác | Quote: Draft → Sent → Accepted/Expired; Order: Confirmed → InProduction → Ready → Scheduled → Delivered / Cancelled | Đơn giản thì enum + bảng chuyển trạng thái là đủ; State class cho khi mỗi trạng thái có nhiều hành vi |
-| **Factory / Abstract Factory** | Tạo object phức tạp, chọn implementation lúc chạy | `IRtoProviderFactory.Get(companyId)`; DocGen chọn template tenant → fallback hệ thống | — |
-| **Builder** | Tạo object nhiều bước/tham số | Dựng quote/test data (test data builder), `WebApplication.CreateBuilder` | — |
-| **Template Method** | Các bước giống nhau, chi tiết khác | Sinh tài liệu: lấy data → chọn template → thay tag → xuất PDF | Kế thừa → cứng; có thể thay bằng composition |
-| **Decorator** | Thêm hành vi ngang (log, cache, retry) không sửa class gốc | `CachedTaxRateProvider` bọc `TaxApiClient`; MediatR pipeline behavior (validation, logging); `DelegatingHandler` của HttpClient | Debug nhiều lớp bọc |
-| **Adapter / Anti-corruption layer** | Tích hợp hệ ngoài có model khác | Map SKU từ configurator, payment, thuế → model nội bộ; đổi provider chỉ sửa adapter | — |
-| **Facade** | Che một hệ phức tạp sau API gọn | `IKycService` che Socure (DocV, SSN, decision) | — |
-| **Repository + Unit of Work** | Tách data access; UoW = 1 transaction | `DbContext` đã là UoW + repository; PlaySweeps bọc SP Dapper bằng repository | Generic `IRepository<T>` trên EF thường thừa, che mất sức mạnh LINQ |
-| **Specification** | Điều kiện nghiệp vụ tái sử dụng/ghép | "RTO option eligible": giá trị tối thiểu, bang, loại sản phẩm | — |
-| **Mediator / CQRS** | Tách command/query, pipeline chung | Joblogic message + handler; Replication sang Azure Search = read model | Mediator là **in-process**, không liên quan độ bền message |
-| **Observer / domain event** | Một sự kiện kéo theo nhiều việc | OrderDelivered → SMS/email, cập nhật balance, audit. Joblogic: Notification/Audit subscribe event | Luồng khó lần theo; cần đặt tên event rõ |
-| **Outbox** | Ghi DB + gửi message nhất quán | Ghi order + outbox row **cùng transaction**, worker gửi sau | Thêm bảng + worker; consumer phải idempotent |
-| **Result type** | Lỗi nghiệp vụ là kết quả bình thường | Joblogic `OneOf<TSuccess, Error>` | Code dài hơn try/catch |
-| **Singleton** | Một instance cho cả app | Qua DI (`AddSingleton`), không tự viết static; cẩn thận captive dependency | Static singleton khó test |
-| **Options pattern** | Cấu hình có kiểu | `IOptions<TaxSettings>` | — |
-| **Circuit breaker / Retry** | Gọi hệ ngoài không ổn định | Polly / `Microsoft.Extensions.Http.Resilience` | Retry không idempotent = nguy hiểm |
-
-### B6.2 Câu mẫu (State)
-> An order has a clear lifecycle, so I'd model it as a state machine in the domain: the Order entity exposes methods like `Confirm()`, `StartProduction()`, `ScheduleDelivery(date)`, `Cancel(reason)`, and each one checks the current status and the business rules before changing it. The UI only shows the actions that are allowed, but the rule lives in the domain, so an API call or a background job can't put the order in an invalid state. Every transition writes an audit entry with who, when and why — similar to the contract audit trail I built at Joblogic.
-
-Code minh hoạ:
+### B5.2 Domain model giàu vs anemic
+- **Anemic model**: entity chỉ có getter/setter, luật nằm rải trong các service (`OrderService.Cancel` kiểm tra trạng thái, `OrderController` cũng kiểm tra, job nền lại kiểm tra kiểu khác) → luật lệch nhau.
+- **Rich model**: entity tự bảo vệ bất biến (invariant):
 ```csharp
 public sealed class Order
 {
     public OrderStatus Status { get; private set; }
-    private readonly List<OrderEvent> _history = new();
+    public decimal Total { get; private set; }
+    private readonly List<Payment> _payments = new();
+    public decimal BalanceDue => Total - _payments.Sum(p => p.Amount);
 
-    public Result Cancel(string reason, string userId, DateTimeOffset now)
+    public Result RecordPayment(decimal amount, string reference, DateTimeOffset at)
     {
-        if (Status is OrderStatus.Delivered or OrderStatus.Cancelled)
-            return Result.Fail("order.cannot_cancel");
-        Status = OrderStatus.Cancelled;
-        _history.Add(new OrderEvent("Cancelled", reason, userId, now));
+        if (Status == OrderStatus.Cancelled) return Result.Fail("order.cancelled");
+        if (amount > BalanceDue) return Result.Fail("payment.exceeds_balance");
+        _payments.Add(new Payment(amount, reference, at));
         return Result.Ok();
     }
 }
 ```
+  Không ai set `Status` từ ngoài được; mọi đường (API, job, import) đi qua cùng luật. Đây là **encapsulation** trong thực tế.
+- Không cần DDD đầy đủ (aggregate, bounded context) cho mọi thứ; CRUD đơn giản (danh mục màu sơn) để anemic cũng được. Biết nói **khi nào đáng**.
 
-### B6.3 Câu mẫu (Strategy cho RTO)
-> Different rent-to-own providers have different rules for eligibility, terms and payment schedules. I'd define an `IRtoProvider` interface with methods like `CheckEligibility` and `BuildPaymentSchedule`, one implementation per provider, and pick it through a factory based on the company's configuration. Adding a provider then means adding a class and a configuration entry, not editing a large switch statement.
+### B5.3 DTO vs domain model vs persistence model
+- **DTO**: hợp đồng API — ổn định, chỉ field cần, có version.
+- **Domain model**: luật nghiệp vụ.
+- **Persistence model**: cách lưu (bảng, cột). Với EF Core thường gộp domain + persistence (cấu hình bằng Fluent API).
+- **Không trả entity EF ra API**: lộ field nhạy cảm (giá vốn, ghi chú nội bộ), **over-posting** khi bind ngược (B2.2), **khoá schema** (đổi cột = vỡ client), vòng tham chiếu khi serialize (`Order.Customer.Orders...`), lazy loading N+1 lúc serialize.
 
-### B6.4 Câu bẫy
-- "When would you NOT use a pattern?" > When there's only one way of doing it and no sign it will change. A pattern adds indirection, so I add it when the second case actually appears, not up front.
-- "Is Repository over EF Core an anti-pattern?" > With EF Core I usually don't add a generic repository — DbSet already is one and DbContext is a unit of work. I add a specific repository when there's a reason: Dapper and stored procedures, multiple stores, or translating unique-key violations into domain results.
-- "Singleton pattern vs singleton lifetime?" → pattern tự quản lý instance (static, khó test); lifetime do DI container quản lý.
+### B5.4 SOLID — mỗi chữ: nghĩa, ví dụ Ops Hub, cái giá khi vi phạm
+| | Nghĩa | Ví dụ | Vi phạm thì |
+|---|---|---|---|
+| **S** — Single Responsibility | Một class một **lý do thay đổi** (một nhóm người yêu cầu đổi) | `QuotePricingCalculator` (đổi khi chính sách giá đổi) tách khỏi `QuotePdfRenderer` (đổi khi mẫu in đổi) | Sửa mẫu PDF làm vỡ cách tính thuế |
+| **O** — Open/Closed | Mở để mở rộng, đóng để sửa | Thêm RTO provider mới = thêm class implement `IRtoProvider`, không sửa `switch` 300 dòng | Mỗi provider mới sửa code cũ, test lại toàn bộ |
+| **L** — Liskov Substitution | Lớp con/implementation thay được cho kiểu cha **mà không đổi hành vi mong đợi** | Mọi `IPaymentProvider.Refund` đều trả kết quả cùng ngữ nghĩa | Một provider ném `NotSupportedException` → caller phải `if (provider is X)` |
+| **I** — Interface Segregation | Interface nhỏ theo nhu cầu người dùng nó | `IQuoteReader` / `IQuoteWriter` thay vì `IQuoteRepository` 40 method | Mock 40 method để test 1 method; class phụ thuộc thứ không dùng |
+| **D** — Dependency Inversion | Phụ thuộc vào abstraction do tầng nghiệp vụ định nghĩa | Handler nhận `TimeProvider`, `ITaxRateProvider`, `IDocumentStorage` | `DateTime.Now`, `new HttpClient()` trong logic → không test được ngày DST, không fake được API thuế |
+- Cẩn thận "interface cho mọi class chỉ để mock" — interface có giá trị khi là **ranh giới thật** (hệ ngoài, I/O, thời gian) hoặc có nhiều implementation.
 
-### B6.5 Câu hỏi luyện
-1. Which design patterns do you use most? Give a real example for each.
-2. How would you model the order lifecycle? Which pattern?
-3. How would you support several RTO providers with different rules?
-4. How would you add caching to a tax-rate client without modifying it? (Decorator)
-5. How do you integrate a third-party system whose model doesn't match yours? (Adapter/ACL)
-6. Explain CQRS. Is it worth it here?
-7. Explain the Outbox pattern. How is it different from a mediator?
-8. Repository + Unit of Work with EF Core: yes or no?
-9. When does a pattern become over-engineering?
-10. Strategy vs State — difference?
-11. Factory vs DI container — when do you need a factory?
+### B5.5 Modular monolith vs microservices
+| | Modular monolith | Microservices |
+|---|---|---|
+| Transaction | Một DB, ACID đơn giản | Phân tán: outbox, saga, eventual consistency |
+| Deploy | Một artifact | Độc lập từng service |
+| Gọi nhau | Gọi hàm (ns) | Qua mạng (ms, có thể lỗi, timeout) |
+| Vận hành | Đơn giản | Cần tracing, service discovery, versioning contract, nhiều pipeline |
+| Hợp khi | Team nhỏ–vừa, domain còn đổi | Nhiều team độc lập, nhu cầu scale khác nhau, ranh giới domain đã rõ |
+- **Modular monolith**: module `Quotes`, `Orders`, `Contracts`, `Production`, `Delivery` — mỗi module có application layer riêng, chỉ giao tiếp qua **interface công khai** hoặc **event in-process**, không query bảng của module khác. Sau này cần tách thì ranh giới đã sẵn.
+- Kinh nghiệm thật: Joblogic ~30 service Azure Functions (team lớn, sản phẩm lâu năm) — thấy cả lợi (deploy độc lập, scale theo trigger) lẫn chi phí (NuGet contract dùng chung, message trùng phải idempotent, debug xuyên service phải theo OperationId).
+- **Distributed monolith** (anti-pattern): tách service nhưng vẫn phải deploy cùng nhau, gọi đồng bộ dây chuyền → nhận hết nhược điểm của cả hai.
+
+### B5.6 Stable và scalable — nói bằng cơ chế
+- **Stateless web tier**: instance không giữ gì quan trọng trong RAM (session ra Redis/DB hoặc dùng token, file ra S3, cache cục bộ chỉ là cache) → LB gửi request đi đâu cũng được, thêm/bớt instance tự do (chi tiết C6).
+- **Việc chậm ra background** (PDF, email, đồng bộ bên thứ ba) qua queue → request nhanh, tải đột biến được san phẳng.
+- **DB trước tiên**: index, query, transaction ngắn; cache cho đọc nhiều; read replica cho báo cáo; shard là cuối (A5.10).
+- **Chịu lỗi**: ≥ 2 instance ở 2 AZ, health check, timeout + retry + circuit breaker khi gọi ngoài (C8), job idempotent để chạy lại được, graceful shutdown.
+- **Thay đổi an toàn**: feature flag, migration expand/contract, rolling/blue-green (C10).
+- Phân biệt: **scalability** (chịu tải tăng khi thêm tài nguyên), **performance** (nhanh ở tải hiện tại), **availability** (% thời gian phục vụ được, 99,9% ≈ 43 phút downtime/tháng), **reliability** (làm đúng, không mất dữ liệu).
+
+### B5.7 Ước lượng tải để chọn kiến trúc (con số)
+Ops Hub giả định: 500 công ty × 20 đơn/ngày = 10.000 đơn/ngày ≈ **0,12 đơn/giây** trung bình, cao điểm ×10 = ~1,2 đơn/giây; mỗi đơn ~50 request API trong vòng đời → vài chục req/s. → Một modular monolith 2–3 instance + một SQL Server dư sức. **Rủi ro chính là đúng (tiền, trạng thái, thời gian), không phải tải.** Nói được câu này là điểm Senior: không thiết kế microservices cho bài toán vài chục req/s.
+
+### B5.8 Bẫy hay sai
+- Đọc định nghĩa SOLID mà không có ví dụ và cái giá.
+- "Microservices để scale" khi tải chỉ vài chục req/s.
+- Generic repository + interface cho mọi class → thêm tầng mà không thêm giá trị.
+- Trả entity EF ra API.
+- Luật nghiệp vụ trong controller/view/stored procedure rải rác.
+
+### B5.9 Câu hỏi phỏng vấn & trả lời mẫu
+
+**Q1. How would you structure a .NET solution for this product? Where does business logic live?**
+> I'd organise it by feature inside a modular monolith: modules for Quotes, Orders, Contracts, Production and Delivery, each with its use cases as vertical slices — command, handler, validator, endpoint. Business rules live in the domain model, for example `Order.RecordPayment` refusing a payment above the balance due, so every path — API, background job, import — goes through the same rule. Handlers orchestrate: load, call the domain, save, publish events. Infrastructure — EF Core, S3, email, the RTO provider clients — implements interfaces defined by the application, so it's replaceable and testable. Controllers stay thin and never return entities.
+
+**Q2. Explain SOLID with examples from your work.**
+> Single responsibility: pricing and PDF rendering are separate classes because they change for different reasons. Open/closed: a new RTO provider is a new class behind an interface, not another branch in a switch. Liskov: every payment provider implementation honours the same contract, no "not supported" exceptions. Interface segregation: small reader and writer interfaces rather than a 40-method repository. Dependency inversion: handlers depend on `TimeProvider` and a tax-rate interface, which is what let me test date and DST rules without the real clock or API.
+
+**Q3. Monolith or microservices for the Ops Hub?**
+> I'd start with a modular monolith. The load is modest — thousands of orders a day, tens of requests a second — and the hard part is correctness across quotes, orders, payments and contracts, which is much easier in one database with ACID transactions. Clear module boundaries keep it maintainable and make a later split cheap. I'd extract a service only for a concrete reason, like PDF generation needing different scaling or a separate team owning integrations. At Joblogic I worked with around thirty services and saw both sides: independent deployment, but also shared contracts, duplicate messages and cross-service debugging.
+
+**Q4. DTO vs domain model — should a controller return an EF entity?**
+> No. Entities leak internal fields, invite over-posting when bound back, tie the API contract to the database schema, and can trigger lazy loading or reference loops during serialisation. The API returns DTOs designed for the client, usually via a projection, so the query only reads the columns it needs.
+
+**Q5. How do you make the system stable and scalable as it grows?**
+> Keep the web tier stateless so instances can be added behind the load balancer, move slow work to background workers through a queue, look after the database first — indexes, short transactions, caching and read replicas for reports — and make failure normal: at least two instances, health checks, timeouts and circuit breakers on external calls, idempotent jobs. For change safety, feature flags and backward-compatible migrations. I'd measure before scaling, because most slowness I've seen came from queries, not from a lack of servers.
+
+**Q6. When does a rich domain model pay off?**
+> When there are real invariants and several entry points that could break them — an order's status transitions, payments against the balance, production states. For simple reference data like colours or sizes, a plain CRUD model is fine; forcing DDD everywhere adds ceremony without benefit.
+
+### B5.10 Tự kiểm tra
+1. Vẽ 4 tầng và hướng phụ thuộc; Dependency Inversion nằm ở đâu?
+2. Ví dụ vi phạm Liskov và hậu quả cho caller.
+3. Ba lý do không trả entity ra API.
+4. Ước lượng tải Ops Hub và kết luận kiến trúc.
+5. Distributed monolith là gì?
 
 ---
 
-## B7. Clean code và code review ⏳
+## B6. Design patterns
 
-> ⏳ **Chưa viết lại sâu.** Dưới đây là nội dung bản cũ (số tham chiếu section bên trong là số bản cũ, xem bảng đối chiếu ở 0.2). Claude sẽ viết lại trước khi Hiệp học tới.
+**Vì sao cần.** JD ghi thẳng "design patterns + refactoring"; bản cũ đánh dấu đây là **lỗ hổng lớn nhất**. SA không chấm việc thuộc tên 23 pattern GoF; họ chấm **vấn đề → pattern → ví dụ thật → trade-off → khi nào không dùng**. Nguyên tắc: nói pattern như **công cụ giải một vấn đề cụ thể**, không đọc định nghĩa sách.
 
-SA tự khai "Clean Coding". Có thể được đưa một đoạn code để review trực tiếp.
+### B6.1 Ba nhóm (để định vị nhanh)
+- **Creational (tạo object)**: Factory Method, Abstract Factory, Builder, Singleton.
+- **Structural (ghép object)**: Adapter, Decorator, Facade, Proxy, Composite.
+- **Behavioral (phân vai, luồng xử lý)**: Strategy, State, Template Method, Observer, Command, Chain of Responsibility, Mediator, Specification.
+- **Enterprise/kiến trúc**: Repository, Unit of Work, CQRS, Outbox, Saga, Result type, Options, Retry/Circuit breaker.
 
-### B7.1 Clean code — nói được bằng ví dụ
-- **Đặt tên** theo nghiệp vụ (`CalculateBalanceDue`, `IsEligibleForRto`), không `Process`, `Helper`, `data2`.
-- **Hàm nhỏ, một việc**, ít tham số (gom thành object), không flag bool đổi hành vi (`Save(true)`).
-- **Guard clause / early return** thay vì if lồng nhau.
-- **Không magic number/string**: hằng số, enum, cấu hình.
-- **Không lặp logic** (DRY), nhưng đừng gộp hai thứ chỉ giống nhau bề ngoài (AHA / "rule of three").
-- **Bất biến** khi có thể: `record`, `init`, value object `Money`.
-- **Xử lý lỗi rõ**: Result cho lỗi nghiệp vụ, exception cho bất ngờ; không `catch {}` nuốt lỗi; log có ngữ cảnh.
-- **Comment giải thích "vì sao"**, không giải thích "làm gì".
-- **Testable**: DI, không static/`DateTime.Now`, logic thuần ở domain.
-- **Boy Scout rule / "1% improvements"**: mỗi lần chạm vào code thì để lại tốt hơn một chút (khớp văn hoá JD).
+### B6.2 Strategy — nhiều cách làm cùng một việc, chọn lúc chạy
+**Vấn đề:** mỗi công ty RTO có luật riêng về điều kiện duyệt (eligibility), kỳ hạn, cách sinh lịch trả. Code cũ:
+```csharp
+if (provider == "Acme") { ... 80 dòng ... }
+else if (provider == "Beta") { ... 90 dòng ... }   // thêm provider = sửa hàm này, test lại tất cả
+```
+**Strategy:**
+```csharp
+public interface IRtoProvider
+{
+    string Code { get; }
+    Task<Eligibility> CheckEligibilityAsync(RtoApplication app, CancellationToken ct);
+    PaymentSchedule BuildSchedule(decimal financedAmount, int months, DateOnly start);
+}
+public sealed class AcmeRtoProvider : IRtoProvider { public string Code => "acme"; /* ... */ }
 
-### B7.2 Checklist review PR (thứ tự nói)
-1. **Đúng nghiệp vụ**: có làm đúng acceptance criteria, edge case (tiền, thời gian, null, rỗng, trùng)?
-2. **Test**: có test cho luật mới và bug đã sửa không?
-3. **Thiết kế**: đúng tầng, không lộ entity, không logic trong controller, đặt tên.
-4. **Dữ liệu**: transaction boundary, concurrency, migration tương thích ngược, index cho query mới, N+1.
-5. **Bảo mật**: authorization theo resource, validate input, không log dữ liệu nhạy cảm, SQL parameter.
-6. **Vận hành**: log/metric, timeout/retry khi gọi ngoài, feature flag, rollback được.
-7. **Hiệu năng**: async all the way, không `.Result`, phân trang.
-Thái độ: comment cụ thể, đề xuất thay vì ra lệnh, tách "blocking" và "nit", khen chỗ tốt. PlaySweeps: lead feature nào review kỹ feature đó; Joblogic: review với team UK trên Azure DevOps.
+// chọn theo cấu hình của tenant
+public sealed class RtoProviderResolver(IEnumerable<IRtoProvider> providers)
+{
+    private readonly Dictionary<string, IRtoProvider> _map = providers.ToDictionary(p => p.Code);
+    public IRtoProvider For(CompanySettings s) => _map[s.RtoProviderCode];
+}
+```
+Thêm provider = thêm một class + đăng ký DI (.NET 8 có thể dùng **keyed services**). Đúng **Open/Closed**.
+Trade-off: thêm class và gián tiếp; đáng khi có **≥ 2 biến thể thật** hoặc biết chắc sẽ có.
+Ví dụ thật của Hiệp: Joblogic **Selling Rate** theo khung giờ/ngày lễ (pay band vs holiday) là kiểu Strategy theo loại khoảng thời gian.
 
-### B7.3 Bài review code (từ question bank 133–136) — tập nói to
-**133.**
+### B6.3 State / state machine — vòng đời có luật
+**Vấn đề:** Quote `Draft → Sent → Accepted / Expired / Rejected`; Order `Confirmed → InProduction → Built → ReadyForDelivery → Scheduled → Delivered`, có thể `Cancelled`, `OnHold`. Mỗi trạng thái cho phép hành động khác nhau.
+- **Cách đơn giản (thường đủ):** enum + bảng chuyển trạng thái + method trên entity kiểm tra:
+```csharp
+private static readonly Dictionary<OrderStatus, OrderStatus[]> Allowed = new()
+{
+    [OrderStatus.Confirmed]        = [OrderStatus.InProduction, OrderStatus.Cancelled],
+    [OrderStatus.InProduction]     = [OrderStatus.Built, OrderStatus.OnHold, OrderStatus.Cancelled],
+    [OrderStatus.Built]            = [OrderStatus.ReadyForDelivery],
+    [OrderStatus.ReadyForDelivery] = [OrderStatus.Scheduled],
+    [OrderStatus.Scheduled]        = [OrderStatus.Delivered, OrderStatus.ReadyForDelivery],
+};
+public Result MoveTo(OrderStatus next, string userId, DateTimeOffset at)
+{
+    if (!Allowed.TryGetValue(Status, out var ok) || !ok.Contains(next))
+        return Result.Fail($"order.invalid_transition:{Status}->{next}");
+    _history.Add(new StatusChange(Status, next, userId, at));   // audit
+    Status = next;
+    return Result.Ok();
+}
+```
+- **State pattern đầy đủ** (mỗi trạng thái một class `IOrderState` với `Cancel()`, `Schedule()`…) khi **mỗi trạng thái có nhiều hành vi khác nhau**; thư viện **Stateless** cho .NET.
+- **Strategy vs State**: Strategy do **bên ngoài chọn** (cấu hình tenant) và thường không đổi trong vòng đời; State **tự chuyển** theo sự kiện nghiệp vụ.
+
+### B6.4 Decorator — thêm hành vi ngang mà không sửa class gốc
+**Vấn đề:** client gọi API thuế chậm (300 ms), cần cache + log + retry, nhưng không muốn trộn vào logic gọi API.
+```csharp
+public sealed class CachedTaxRateProvider(ITaxRateProvider inner, IMemoryCache cache) : ITaxRateProvider
+{
+    public Task<decimal> GetRateAsync(string zip, CancellationToken ct) =>
+        cache.GetOrCreateAsync($"tax:{zip}", e =>
+        {
+            e.AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(12);
+            return inner.GetRateAsync(zip, ct);
+        })!;
+}
+// DI: services.AddScoped<TaxApiClient>(); services.AddScoped<ITaxRateProvider>(sp =>
+//      new CachedTaxRateProvider(sp.GetRequiredService<TaxApiClient>(), sp.GetRequiredService<IMemoryCache>()));
+// (Scrutor .Decorate<,>() hoặc Autofac RegisterDecorator làm gọn hơn)
+```
+Ví dụ có sẵn trong .NET: **`DelegatingHandler`** của HttpClient (Polly, logging), **MediatR pipeline behavior** (validation, logging, transaction quanh mọi handler), `BufferedStream` bọc `Stream`.
+Trade-off: nhiều lớp bọc → debug stack dài, thứ tự bọc quan trọng (cache ngoài retry hay trong?).
+
+### B6.5 Adapter / Anti-corruption layer — nói chuyện với hệ ngoài
+**Vấn đề:** payment provider, RTO provider, API thuế, configurator 3D có **model khác mình** (tên field, trạng thái, đơn vị cent vs dollar).
+- **Adapter** dịch interface/model của họ → interface/model của mình (`IPaymentGateway`). **Anti-corruption layer** là adapter ở mức hệ thống: model lạ **không lọt** vào domain.
+- Đổi provider chỉ sửa adapter; lỗi của provider được dịch thành lỗi nghiệp vụ rõ ràng (`PaymentDeclined`, `ProviderUnavailable`).
+- Ví dụ thật: Socure KYC — decision của vendor (accept/reject/review, các module DocV/SSN) được dịch thành trạng thái KYC nội bộ của PlaySweeps.
+
+### B6.6 Facade — che một hệ con phức tạp
+`IKycService.VerifyAsync(player)` che chuỗi gọi DocV, SSN, decision module, retry, mapping. Caller chỉ thấy một method.
+
+### B6.7 Factory / Abstract Factory / Builder
+- **Factory**: khi việc tạo object phức tạp hoặc **chọn implementation lúc chạy** (`RtoProviderResolver` ở trên; DocGen chọn template của tenant, không có thì template hệ thống).
+- **Factory vs DI container**: container tạo object có phụ thuộc cố định lúc đăng ký; cần factory khi **lựa chọn phụ thuộc vào dữ liệu runtime** (tenant, loại sản phẩm) hoặc cần tạo **nhiều instance ngắn hạn** (`IDbContextFactory`).
+- **Builder**: object nhiều bước/tham số; trong .NET gặp ở `WebApplication.CreateBuilder`, `StringBuilder`; trong test là **test data builder** (`OrderBuilder.WithTotal(1000).Paid(200).Build()`).
+
+### B6.8 Template Method vs composition
+Các bước giống nhau, chi tiết khác: sinh tài liệu = lấy dữ liệu → chọn template → thay tag → xuất PDF. Lớp cha abstract định nghĩa thứ tự, lớp con override bước. Nhược: kế thừa cứng; thường thay bằng **composition** (pipeline các bước inject vào) cho linh hoạt.
+
+### B6.9 Observer / domain event
+- `OrderDelivered` → gửi SMS khách, cập nhật thống kê tài xế, ghi audit, mở hoá đơn cuối. Order không cần biết ai quan tâm.
+- In-process: MediatR `INotification` hoặc tự dispatch sau `SaveChanges`. **Xuyên process/không được mất**: ghi vào **outbox** cùng transaction rồi publish ra queue (C5).
+- Trade-off: luồng khó lần theo ("ai xử lý event này?"), cần đặt tên event rõ, tài liệu hoá subscriber.
+
+### B6.10 Repository, Unit of Work, Specification, CQRS, Result
+- **Repository + UoW**: với EF Core, `DbSet` đã là repository và `DbContext` đã là UoW → **không** thêm `IRepository<T>` generic (che mất LINQ, projection, `Include`). Thêm repository **cụ thể** khi: Dapper/stored procedure (PlaySweeps), nhiều store (SQL + Cosmos + Redis), dịch lỗi unique 2627/2601 thành kết quả nghiệp vụ.
+- **Specification**: điều kiện nghiệp vụ đặt tên và ghép được (`EligibleForRto = MinAmount && AllowedState && ProductType`), dùng cả để lọc DB (Expression) lẫn kiểm tra in-memory.
+- **CQRS**: tách đường **ghi** (command, domain model, luật) và đường **đọc** (query tối ưu, projection, có thể read model riêng). Mức nhẹ: chỉ tách handler command/query trong cùng DB — hợp hầu hết app. Mức nặng: DB đọc riêng, đồng bộ qua event → eventual consistency; chỉ khi đọc/ghi khác hẳn nhau về quy mô. Joblogic: replicate sang Azure Search làm read model.
+- **Mediator** (MediatR): điều phối **in-process** request → handler + pipeline behavior. **Không** liên quan độ bền message (lỗi Hiệp từng nhầm với Outbox).
+- **Result type** (`OneOf<Success, Error>` ở Joblogic): lỗi nghiệp vụ là giá trị trả về, caller buộc xử lý; exception cho bất ngờ.
+
+### B6.11 Singleton pattern vs singleton lifetime
+- Pattern cổ điển: class tự giữ `static Instance`, constructor private → **khó test**, ẩn phụ thuộc, khó thay thế.
+- Hiện đại: **lifetime Singleton do DI container quản lý** (`AddSingleton<ITaxCache, TaxCache>()`) → vẫn một instance nhưng inject được, thay bằng fake khi test. Cẩn thận **captive dependency** (B1.3) và thread-safety (Singleton bị nhiều request dùng cùng lúc).
+
+### B6.12 Khi nào KHÔNG dùng pattern
+- Chỉ có một cách làm và không có dấu hiệu sẽ có cách thứ hai → `if` đơn giản tốt hơn Strategy.
+- Pattern thêm **gián tiếp (indirection)** → khó đọc; thêm khi **trường hợp thứ hai thật sự xuất hiện** ("rule of three").
+- "Pattern cho đẹp CV" là over-engineering; SA đánh giá cao câu "I'd start with the simple version and introduce X when Y happens".
+
+### B6.13 Câu hỏi phỏng vấn & trả lời mẫu
+
+**Q1. Which design patterns do you use most? Give a real example.**
+> Strategy, adapters and decorators come up most. Strategy when there are several interchangeable rules — at Joblogic, selling rates differed by time band and holidays, and for the Ops Hub I'd model each rent-to-own provider as an implementation of one interface, chosen from the company's settings, so adding a provider doesn't touch existing code. Adapters at every integration boundary — when I took over the Socure KYC integration, the vendor's decision results were mapped to our own KYC states so vendor details didn't leak into the domain. Decorators for cross-cutting concerns like caching or retries around an HTTP client, which in .NET often means a DelegatingHandler or a pipeline behaviour.
+
+**Q2. How would you model the order lifecycle?**
+> As an explicit state machine in the domain. The order exposes methods like `StartProduction`, `Schedule`, `Cancel`, and each checks a table of allowed transitions plus the business rules before changing status — you can't cancel after delivery. Every transition writes an audit row with who, when and why, and raises a domain event that goes through an outbox. If each state grew a lot of distinct behaviour I'd move to the full State pattern or a library like Stateless, but an enum with a transition table is usually enough.
+
+**Q3. How would you add caching to a tax-rate client without modifying it?**
+> With a decorator: a `CachedTaxRateProvider` implements the same interface, wraps the real client and caches by ZIP code with an expiry. The DI registration wires the decorator in front, so callers don't change and the client stays focused on HTTP. I'd also snapshot the rate onto the order when it's finalised, so a cache refresh never changes an agreed price.
+
+**Q4. Is a generic repository over EF Core a good idea?**
+> Usually not: DbSet is already a repository and DbContext a unit of work, and a generic `IRepository<T>` hides projections, includes and query composition, so people end up loading whole entities. I add specific repositories when there's a reason — Dapper and stored procedures as on PlaySweeps, data spread over several stores, or translating unique-key violations into domain results.
+
+**Q5. Strategy vs State?**
+> Both swap behaviour behind an interface, but Strategy is chosen from outside — by configuration, like which RTO provider a company uses — and usually doesn't change during the object's life. State changes from inside as the object moves through its lifecycle, and each state decides which transitions are allowed.
+
+**Q6. Explain CQRS. Is it worth it here?**
+> CQRS separates the write side — commands going through the domain model and its rules — from the read side — queries shaped for screens. The light version, separate command and query handlers over the same database with projections for reads, is worth it almost everywhere. The heavy version with a separate read database synced by events adds eventual consistency and operational cost; for the Ops Hub I'd only consider it for something like full-text search or heavy reporting.
+
+**Q7. When does a pattern become over-engineering?**
+> When it solves a problem we don't have. If there's one payment provider and no plan for another, an interface plus a factory plus a strategy registry is just indirection. I start with the straightforward code and introduce the pattern when the second real case appears; refactoring then is cheap if the code is tested.
+
+### B6.14 Tự kiểm tra
+1. Viết khung Strategy cho 2 cách tính phí giao hàng (theo dặm, theo vùng).
+2. Vẽ state machine của Order và nêu 2 chuyển trạng thái bị cấm.
+3. Decorator khác Adapter thế nào?
+4. Khi nào cần Factory dù đã có DI container?
+5. Mediator khác Outbox thế nào?
+
+---
+
+## B7. Clean code và code review
+
+**Vì sao cần.** SA tự khai "Clean Coding" → có thể đưa một đoạn code bắt **review trực tiếp**. Điểm cộng lớn: tìm lỗi **theo thứ tự rủi ro** (đúng/sai tiền và dữ liệu trước, đặt tên sau), giải thích **vì sao** là lỗi (cơ chế), và đề xuất sửa cụ thể.
+
+### B7.1 Clean code — mỗi nguyên tắc kèm "vì sao"
+| Nguyên tắc | Vì sao | Ví dụ |
+|---|---|---|
+| Tên theo nghiệp vụ | Người đọc hiểu ý đồ không cần đọc thân hàm | `CalculateBalanceDue`, `IsEligibleForRto` thay vì `Process`, `Helper`, `data2` |
+| Hàm nhỏ, một việc, một mức trừu tượng | Dễ test, dễ đặt tên, ít bug | Tách `ValidateQuote`, `ApplyTax`, `SnapshotLines` |
+| Guard clause / return sớm | Giảm if lồng nhau, luồng chính rõ | `if (quote is null) return NotFound();` |
+| Không flag bool đổi hành vi | `Save(true)` không ai hiểu `true` là gì | Hai method rõ tên hoặc enum |
+| Không magic number/string | Một chỗ sửa, có tên | `TaxRate` từ cấu hình/snapshot, không `* 1.07` |
+| DRY nhưng không gộp sai | Gộp hai thứ chỉ *giống bề ngoài* tạo coupling | "Rule of three"; *duplication is cheaper than the wrong abstraction* |
+| Bất biến khi có thể | Ít trạng thái thay đổi = ít bug đồng thời | `record`, `init`, value object `Money` |
+| Lỗi rõ ràng | Lỗi im lặng là bug khó nhất | Result cho lỗi nghiệp vụ, không `catch {}` |
+| Comment giải thích **vì sao** | Code nói "làm gì", comment nói lý do không hiển nhiên | `// Provider retries for 24h, so keys must live at least that long` |
+| Testable | Phụ thuộc tiêm vào, logic thuần | `TimeProvider`, không `DateTime.Now` |
+| **Boy Scout rule / 1% improvement** | Codebase tốt lên dần, không cần dự án rewrite | Mỗi lần chạm vào thì đặt lại tên, thêm test cho chỗ sửa (khớp value **1% Improvement** của SEADEV) |
+
+### B7.2 Thứ tự review một PR (nói theo thứ tự rủi ro)
+1. **Đúng nghiệp vụ**: đáp ứng acceptance criteria? Edge case: tiền (làm tròn, refund, âm), thời gian (múi giờ, DST), null/rỗng, trùng (retry, double click), đồng thời.
+2. **Dữ liệu**: transaction boundary, race condition (check-then-act?), migration tương thích ngược, index cho query mới, N+1.
+3. **Bảo mật**: authorization **theo resource** (đơn này của tenant này?), validate input, SQL tham số hoá, không log PII/secret.
+4. **Test**: có test cho luật mới và bug vừa sửa?
+5. **Thiết kế**: đúng tầng, không lộ entity, không logic trong controller, tên.
+6. **Vận hành**: log có ngữ cảnh, timeout/retry khi gọi ngoài, feature flag, rollback được.
+7. **Hiệu năng**: async all the way, phân trang, không `ToList()` sớm.
+Thái độ: comment cụ thể kèm lý do và đề xuất ("What do you think about…?"), tách **blocking** vs **nit**, khen chỗ tốt, PR lớn thì nói chuyện trực tiếp. PlaySweeps: feature lead review kỹ feature mình lead; Joblogic: review với team UK trên Azure DevOps.
+
+### B7.3 Bài review 1
 ```csharp
 public async Task<User> GetUser(int id)
 {
@@ -1660,9 +1802,13 @@ public async Task<User> GetUser(int id)
     return user;
 }
 ```
-Ý: trả `null` khi không có → controller trả **404**; không trả entity ra API → **project sang DTO** (`Select(u => new UserDto(...))`) — chỉ lấy cột cần, không tracking; nếu chỉ đọc mà không project thì `AsNoTracking()`; truyền `CancellationToken`; kiểm tra quyền xem user này (multi-tenant/ownership); đổi tên `GetUserAsync`; kiểu trả về `User?` (nullable reference).
+Nói theo thứ tự:
+1. **Bảo mật**: không kiểm tra người gọi có quyền xem user này (tenant/ownership) → **IDOR/BOLA**.
+2. **Trả entity**: lộ field (password hash, ghi chú nội bộ), khoá schema → **project sang DTO** (`Select(u => new UserDto(...))`), chỉ lấy cột cần, không tracking.
+3. **Null**: kiểu trả về nên là `User?`/`UserDto?`; controller map null → **404**.
+4. `CancellationToken` truyền xuống `FirstOrDefaultAsync(ct)`; tên `GetUserAsync`.
 
-**134.**
+### B7.4 Bài review 2
 ```csharp
 public async Task ProcessAsync()
 {
@@ -1670,9 +1816,22 @@ public async Task ProcessAsync()
     Console.WriteLine(result);
 }
 ```
-Ý: `.Result` là **sync-over-async** → chiếm 2 thread, có thể **thread-pool starvation** (ASP.NET Core) hoặc deadlock (có SynchronizationContext); method `async` mà không `await`. Sửa: `await _client.GetAsync("/users", ct)`, `EnsureSuccessStatusCode`, `ReadFromJsonAsync`, timeout bằng CancellationToken/`HttpClient.Timeout`, retry có backoff (Polly/resilience handler), log bằng `ILogger` không `Console`. `HttpClient` **không tạo mới mỗi request** (cạn socket) → `IHttpClientFactory`/typed client (cũng xử lý DNS đổi).
+1. `.Result` = **sync-over-async** → chặn thread, dưới tải gây **thread-pool starvation** (A4.4); ở ASP.NET cũ/WPF **deadlock**. Method `async` mà không `await`.
+2. Không kiểm tra status (`EnsureSuccessStatusCode`), không đọc body (`ReadFromJsonAsync<T>()`), in object response vô nghĩa.
+3. Không timeout/`CancellationToken`; không retry có backoff cho lỗi tạm thời.
+4. `Console.WriteLine` → `ILogger` có template.
+5. `_client` phải đến từ **`IHttpClientFactory`/typed client**, không `new HttpClient()` mỗi lần (cạn socket, A2.5).
+Sửa:
+```csharp
+public async Task<IReadOnlyList<UserDto>> GetUsersAsync(CancellationToken ct)
+{
+    using var resp = await _client.GetAsync("/users", ct);
+    resp.EnsureSuccessStatusCode();
+    return await resp.Content.ReadFromJsonAsync<List<UserDto>>(cancellationToken: ct) ?? [];
+}
+```
 
-**135.**
+### B7.5 Bài review 3
 ```csharp
 public class OrderService
 {
@@ -1685,9 +1844,15 @@ public class OrderService
     }
 }
 ```
-Hỏi trước khi approve: validation và luật nghiệp vụ ở đâu (order nhận từ đâu, có phải entity bind thẳng từ request → over-posting)? Có idempotency chống tạo trùng? Transaction boundary: `SaveChanges` đã là 1 transaction; nếu cần gửi email/gọi ngoài → outbox, không gọi trong transaction. Dùng `DbContext` chung chung → nên inject `AppDbContext` cụ thể. Có cần repository không? Với EF thường **không** (DbSet đã là repository, DbContext là UoW); bọc khi Dapper/nhiều store. Thiếu `CancellationToken`, thiếu trả về id/kết quả, thiếu log/audit. Lớp này đang "anemic": logic nên ở `Order.Create(...)` hoặc handler.
+Câu hỏi trước khi approve:
+1. `order` đến từ đâu? Nếu bind thẳng từ request → **over-posting** (client tự đặt `Total`, `Status`). Nhận command/DTO, tạo entity qua `Order.Create(...)` có luật.
+2. Validation và luật nghiệp vụ ở đâu? (Class đang **anemic**.)
+3. **Chống tạo trùng**: idempotency key / UNIQUE(QuoteId).
+4. Side effect (email, sự kiện) → outbox cùng transaction, không gọi ngoài trong transaction.
+5. Inject `DbContext` chung chung → `AppDbContext` cụ thể; thiếu `CancellationToken`; không trả id/kết quả; không log/audit.
+6. Có cần repository? Với EF thường không (B6.10).
 
-**136.**
+### B7.6 Bài review 4
 ```csharp
 public class CacheService
 {
@@ -1696,9 +1861,14 @@ public class CacheService
     public void Set(string key, object value) => _cache[key] = value;
 }
 ```
-Ý: `Dictionary` **không thread-safe** → đọc/ghi đồng thời có thể hỏng cấu trúc, vòng lặp vô hạn, exception. Không có expiration → dữ liệu cũ + **memory leak** (lớn mãi). Nhiều instance → mỗi instance một cache riêng, lệch nhau. `object` → mất type safety. Không giới hạn kích thước. Sửa: `IMemoryCache` (có expiration, size limit, thread-safe) cho cache cục bộ; **Redis/`IDistributedCache`** (hoặc `HybridCache` .NET 9) khi nhiều instance cần thống nhất; key có tenant; chống stampede (lock theo key / `GetOrCreateAsync`).
+1. `Dictionary` **không thread-safe** (A3.7): service này nhiều khả năng Singleton → ghi đồng thời làm hỏng cấu trúc, exception, thậm chí treo CPU.
+2. Không expiration, không giới hạn kích thước → **memory leak** + dữ liệu cũ.
+3. Nhiều instance → mỗi instance một cache, **lệch nhau**.
+4. `object` → mất type safety, boxing.
+5. Không chống **cache stampede**.
+Sửa: `IMemoryCache` (thread-safe, expiration, `SizeLimit`) cho cache cục bộ; `IDistributedCache`/Redis hoặc **`HybridCache`** (.NET 9: L1 + L2 + chống stampede) khi nhiều instance; key có tenant.
 
-**Bài thêm (tự luyện, liên quan nghiệp vụ):**
+### B7.7 Bài review 5 (nghiệp vụ tiền)
 ```csharp
 public decimal CalculateBalance(Order o)
 {
@@ -1709,161 +1879,255 @@ public decimal CalculateBalance(Order o)
     return (decimal)Math.Round(total - (double)paid, 2);
 }
 ```
-Lỗi cần tìm: `double` cho tiền (sai số) → `decimal`; thuế **hard-code 7%** (thuế phụ thuộc địa chỉ/bang, phải lấy từ snapshot của order); `ToList()` trước `Sum` → kéo hết về RAM (dùng `SumAsync` ở DB); query sync trong code lẽ ra async; không trừ refund; làm tròn mặc định là **banker's rounding** (`MidpointRounding.ToEven`) — cần quy tắc rõ; logic tính tiền nằm trong service truy cập DB trực tiếp → khó test, nên tách hàm thuần nhận dữ liệu.
+1. **`double` cho tiền** → sai số (A3.10) → `decimal` suốt.
+2. **Thuế hard-code 7%** → thuế phụ thuộc địa chỉ giao/bang, phải lấy **snapshot thuế của order** lúc finalize.
+3. `ToList()` trước `Sum` → kéo mọi payment về RAM → `SumAsync` ở DB; query **đồng bộ** trong code lẽ ra async.
+4. Không trừ **refund**/adjustment → balance sai; nên tính từ **ledger**.
+5. `Math.Round` mặc định **banker's rounding** → quy tắc làm tròn phải chốt với kế toán, làm tròn một chỗ.
+6. Hàm tính tiền vừa tính vừa truy cập DB → khó test → tách **hàm thuần** nhận order + payments.
 
-### B7.4 Câu hỏi luyện
-1. What does clean code mean to you? Give an example of code you cleaned up.
-2. What do you look for when reviewing a pull request?
-3. How do you give feedback on a PR from a more senior colleague / from the US partner?
-4. How do you handle disagreement in code review?
-5. Review this code (các bài trên). What would you change and why?
-6. When is duplication better than the wrong abstraction?
-7. How do you keep a codebase maintainable over years?
-8. What makes code testable?
+### B7.8 Câu hỏi phỏng vấn & trả lời mẫu
+
+**Q1. What does clean code mean to you?**
+> Code the next person can change safely. Practically: names from the business domain, small functions at one level of abstraction, explicit error handling instead of swallowed exceptions, dependencies injected so logic is testable, and tests that document the rules. I also follow the boy-scout rule — when I touch a file I leave it slightly better, a rename or a missing test — which is how a legacy codebase improves without a rewrite.
+
+**Q2. What do you look for when reviewing a pull request?**
+> In order of risk: does it do the right thing for the business, including edge cases like rounding, time zones and retries; is the data safe — transaction boundaries, race conditions, backward-compatible migrations, indexes for new queries; security — resource-level authorisation and no sensitive data in logs; tests for the new rules; then design and naming; then operability — logs, timeouts, a feature flag. I separate blocking comments from nits and explain the reason behind each.
+
+**Q3. How do you handle disagreement in code review, for example with a more senior colleague or the US partner?**
+> I keep it about the code and the risk, not the person: I explain the concrete failure I'm worried about, ideally with an example or a failing test, and suggest an alternative. If we still disagree and it isn't a correctness or security issue, I accept their decision or we take it to a short call; for a real risk I'd ask to involve the tech lead and document the decision either way.
+
+**Q4. When is duplication better than the wrong abstraction?**
+> When two pieces of code look alike but change for different reasons — say, the price shown on a quote and the price used in a commission report. Merging them couples two business rules, and the shared function grows flags until nobody understands it. I'd keep them separate until a third real case shows the true common concept.
+
+### B7.9 Tự kiểm tra
+1. Review 5: kể đủ 6 lỗi theo thứ tự rủi ro.
+2. Vì sao `.Result` trong review 2 nguy hiểm dưới tải? Gọi đúng tên vấn đề.
+3. Review 3: lỗi bảo mật nào xảy ra nếu `order` bind từ request?
+4. Review 4: nếu chạy 3 instance thì có thêm vấn đề gì?
 
 ---
 
-## B8. Unit test, integration test ⏳
+## B8. Unit test và integration test
 
-> ⏳ **Chưa viết lại sâu.** Dưới đây là nội dung bản cũ (số tham chiếu section bên trong là số bản cũ, xem bảng đối chiếu ở 0.2). Claude sẽ viết lại trước khi Hiệp học tới.
+**Vì sao cần.** JD: "clean, testable code", unit test là điểm cộng; tiếp quản code partner gần như chắc **ít test**. Bằng chứng thật của Hiệp: PlaySweeps ~200 file test **xUnit + Moq**; Joblogic **MSTest + AutoFixture + AutoMocker** (test audit handler, selling rate, SchedulerController); EIM **Jest** (ít, ~3 file — nói nhẹ). Nói **đúng tên framework từng nơi**.
 
-Bằng chứng: PlaySweeps ~200 file test **xUnit + Moq**; Joblogic **MSTest + AutoFixture + AutoMocker** (test audit handler, selling rate, SchedulerController); EIM **Jest** (~3 file — nói ít). Nói đúng tên framework từng nơi.
+### B8.1 Các loại test và kim tự tháp
+| Loại | Kiểm tra | Tốc độ | Ví dụ Ops Hub |
+|---|---|---|---|
+| **Unit** | Một đơn vị logic, cô lập, không I/O | ms | Tính balance due, lịch trả góp RTO, chuyển trạng thái order, cộng ngày theo timezone |
+| **Integration** | Nhiều thành phần thật cùng nhau (DB thật, HTTP pipeline) | 100 ms–giây | API finalize quote + SQL Server thật, unique constraint chặn order trùng |
+| **Contract** | Hợp đồng giữa FE–BE/provider | | OpenAPI/Pact |
+| **E2E** | Qua UI và hệ thống thật | giây–phút | Playwright: tạo quote → order → lên lịch giao |
+**Test pyramid**: nhiều unit cho luật nghiệp vụ → ít integration cho dữ liệu/tích hợp → rất ít E2E cho luồng chính. E2E nhiều = chậm, flaky.
 
-### B8.1 Kiến thức
-- **Unit test**: test một đơn vị logic, cô lập, nhanh, không I/O. **Integration test**: nhiều thành phần thật (DB, HTTP pipeline). **E2E**: qua UI/hệ thống thật.
-- **Test pyramid**: nhiều unit (domain, tính tiền, state machine, ngày giờ) → ít integration (`WebApplicationFactory` + DB thật bằng **Testcontainers**) → rất ít E2E (Playwright).
-- **Test tốt (FIRST)**: Fast, Independent, Repeatable, Self-validating, Timely. Một hành vi mỗi test; tên `Method_Scenario_ExpectedResult`; Arrange–Act–Assert; không logic phức tạp trong test.
-- **Test double**: dummy, stub (trả dữ liệu cố định), fake (implement đơn giản, vd. in-memory), mock (kiểm tra được gọi thế nào), spy.
-- **Mock gì**: phụ thuộc ngoài (HTTP, email, clock, queue, payment). **Không mock**: domain object, value object; **không mock `DbContext`/`IQueryable`** để test query (dùng DB thật); EF InMemory provider không giống SQL thật (không transaction, không constraint) → SQLite in-memory hoặc Testcontainers.
-- **Thời gian**: `TimeProvider` + `FakeTimeProvider` (.NET 8).
-- **Test data builder** / AutoFixture để tạo object; tránh fixture dùng chung bị sửa.
-- **Parameterized**: xUnit `[Theory]` + `[InlineData]`/`[MemberData]`; MSTest `[DataRow]`; NUnit `[TestCase]`.
-- **Assertion**: FluentAssertions (chú ý license v8) hoặc Shouldly.
-- **Test legacy**: characterization test trước, tạo seam, rồi refactor.
-- **Coverage**: chỉ là chỉ số phụ; quan trọng là luật nghiệp vụ rủi ro có test. Mutation testing (Stryker) để đo chất lượng test.
-- **TDD** (Red–Green–Refactor): dùng khi luật rõ (tính tiền, lịch trả góp).
-- **Contract test** cho API giữa FE–BE/partner (Pact) — biết khái niệm.
-- **Flaky test**: do thời gian, thứ tự, dữ liệu dùng chung, mạng → cô lập, fake clock, dữ liệu riêng mỗi test.
-- Test trong CI: chạy mỗi PR, chặn merge khi fail.
+### B8.2 Test tốt trông thế nào
+- **FIRST**: Fast, Independent (không phụ thuộc thứ tự), Repeatable (chạy đâu cũng ra cùng kết quả), Self-validating (pass/fail rõ), Timely.
+- **Arrange–Act–Assert**, một hành vi mỗi test, tên nói lên hành vi: `RecordPayment_AboveBalance_IsRejected`.
+- Test **hành vi**, không test chi tiết cài đặt (refactor không làm vỡ test).
+- Không logic phức tạp trong test (if/loop) — test của test là ai?
 
-### B8.2 Ví dụ
 ```csharp
-public class BalanceDueTests
+public class RtoScheduleTests
 {
     [Theory]
-    [InlineData(1000.00, 200.00, 0.00, 800.00)]
-    [InlineData(1000.00, 1000.00, 0.00, 0.00)]
-    [InlineData(1000.00, 1100.00, 100.00, 0.00)] // overpaid then refunded
-    public void BalanceDue_NetsPaymentsAndRefunds(decimal total, decimal paid, decimal refunded, decimal expected)
+    [InlineData(1000.00, 3, 333.33, 333.34)]   // kỳ cuối bù chênh lệch
+    [InlineData(999.99, 12, 83.33, 83.36)]
+    public void Create_LastInstallmentAbsorbsRounding(decimal total, int months, decimal regular, decimal last)
     {
-        var order = OrderBuilder.WithTotal(total).Paid(paid).Refunded(refunded).Build();
-        order.BalanceDue.Should().Be(expected);
+        var s = RtoSchedule.Create(total, months, start: new DateOnly(2026, 1, 31));
+        s.Installments.Sum(i => i.Amount).Should().Be(total);
+        s.Installments.SkipLast(1).Should().OnlyContain(i => i.Amount == regular);
+        s.Installments.Last().Amount.Should().Be(last);
     }
 
     [Fact]
-    public void RtoSchedule_LastInstallmentAbsorbsRounding()
+    public void Create_DueDateOn31st_FallsBackToMonthEnd()
     {
-        var schedule = RtoSchedule.Create(total: 1000m, months: 3);
-        schedule.Installments.Sum(i => i.Amount).Should().Be(1000m);
-        schedule.Installments.Last().Amount.Should().Be(333.34m);
+        var s = RtoSchedule.Create(600m, 2, start: new DateOnly(2026, 1, 31));
+        s.Installments[1].DueDate.Should().Be(new DateOnly(2026, 2, 28));
     }
 }
 ```
-Integration test API:
+
+### B8.3 Test double: dummy, stub, fake, mock, spy
+- **Stub**: trả dữ liệu cố định (`taxProvider.GetRate → 0.0825`).
+- **Fake**: implement đơn giản nhưng chạy thật (in-memory repository, `FakeTimeProvider`).
+- **Mock**: kiểm tra **được gọi thế nào** (`_sms.Verify(s => s.SendAsync(...), Times.Once)`) — dùng cho side effect ra ngoài.
+- **Mock gì**: ranh giới ra ngoài — HTTP tới provider, email/SMS, queue, clock, payment.
+- **Không mock**: domain object, value object; **không mock `DbContext`/`IQueryable`** để test query (mock LINQ chạy trong RAM, không giống SQL: không có collation, constraint, transaction, cách dịch query).
+- **EF InMemory provider** không phải DB quan hệ (không constraint, không transaction thật) → test sai cảm giác an toàn. Dùng **SQLite in-memory** (gần hơn) hoặc tốt nhất **Testcontainers** chạy SQL Server thật trong Docker.
+
+### B8.4 Integration test với ASP.NET Core
 ```csharp
-public class QuotesApiTests(ApiFactory factory) : IClassFixture<ApiFactory>
+public class OrdersApiTests(ApiFactory factory) : IClassFixture<ApiFactory>   // WebApplicationFactory + Testcontainers MsSql
 {
     [Fact]
-    public async Task Finalize_Twice_ReturnsConflict()
+    public async Task CreateOrder_TwiceForSameQuote_SecondReturnsConflict()
     {
         var client = factory.CreateClient();
-        var id = await factory.SeedDraftQuoteAsync();
-        (await client.PostAsync($"/quotes/{id}/finalize", null)).StatusCode.Should().Be(HttpStatusCode.OK);
-        (await client.PostAsync($"/quotes/{id}/finalize", null)).StatusCode.Should().Be(HttpStatusCode.Conflict);
+        var quoteId = await factory.SeedFinalizedQuoteAsync();
+
+        var first  = await client.PostAsJsonAsync("/orders", new { quoteId });
+        var second = await client.PostAsJsonAsync("/orders", new { quoteId });
+
+        first.StatusCode.Should().Be(HttpStatusCode.Created);
+        second.StatusCode.Should().Be(HttpStatusCode.Conflict);
+    }
+
+    [Fact]
+    public async Task BookDelivery_TenParallelRequestsForLastSlot_ExactlyOneSucceeds()
+    {
+        var client = factory.CreateClient();
+        var (truckId, date) = await factory.SeedTruckDayAsync(capacity: 3, booked: 2);
+        var results = await Task.WhenAll(Enumerable.Range(0, 10).Select(_ =>
+            client.PostAsJsonAsync("/deliveries", new { truckId, date, orderId = Guid.NewGuid() })));
+        results.Count(r => r.StatusCode == HttpStatusCode.Created).Should().Be(1);
     }
 }
 ```
+Test thứ hai **chứng minh** không có race condition — chỉ làm được với DB thật.
 
-### B8.3 Câu mẫu
-> I focus unit tests on business rules where bugs cost money — pricing, balance due, state transitions, date calculations — because those are pure logic and fast to test. For data access and integrations I prefer a few integration tests against a real database rather than mocking EF, since mocked queries give false confidence. At PlaySweeps I wrote unit tests with xUnit and Moq, around two hundred test files across the features I worked on; at Joblogic the team used MSTest with AutoFixture.
+### B8.5 Test code phụ thuộc thời gian, ngẫu nhiên, bên ngoài
+- Thời gian: inject **`TimeProvider`** (.NET 8), test dùng `FakeTimeProvider` (`Microsoft.Extensions.TimeProvider.Testing`) → test ngày DST (08/03/2026, 01/11/2026), cuối tháng, năm nhuận, 23:30 Pacific (= hôm sau UTC).
+- HTTP tới provider: stub `HttpMessageHandler` hoặc **WireMock.Net** (server giả trả response/độ trễ/lỗi 500 theo kịch bản) → test retry, timeout, circuit breaker.
+- Webhook handler: test (1) chữ ký sai → 401, (2) event hợp lệ → ghi ledger, (3) **cùng event 2 lần → chỉ ghi 1 lần**, (4) event tới sai thứ tự.
 
-### B8.4 Câu hỏi luyện
-1. What makes a good unit test?
-2. Unit vs integration test? What does your test pyramid look like?
-3. What do you mock and what don't you mock?
-4. Should you mock DbContext? Is the EF InMemory provider good for tests?
-5. How do you test code that depends on the current time?
-6. How do you add tests to legacy code with no tests?
-7. How do you test a payment webhook handler?
-8. What's TDD? Do you use it?
-9. Is 100% coverage a good goal?
-10. How do you deal with flaky tests?
-11. What would you unit test in the quote → order flow?
+### B8.6 Thêm test cho legacy không có test
+1. **Characterization test (golden master)**: chụp **hành vi hiện tại**, kể cả hành vi "lạ". Ví dụ: chạy 200 quote mẫu qua hàm tính giá cũ, lưu kết quả, test so sánh y hệt sau refactor.
+2. Tạo **seam**: bọc phụ thuộc khó (DB, `DateTime.Now`, HTTP static) sau interface để chèn test double.
+3. Refactor từng bước nhỏ, chạy test mỗi bước (D5).
+
+### B8.7 Coverage, TDD, flaky
+- **Coverage** chỉ đo dòng nào **đã chạy**, không đo assertion có ý nghĩa. 100% là mục tiêu sai; mục tiêu đúng: luật rủi ro (tiền, trạng thái, phân quyền) có test. **Mutation testing** (Stryker.NET) đo chất lượng test: đổi `>` thành `>=` mà test vẫn pass → test yếu.
+- **TDD** (Red → Green → Refactor): hợp khi luật rõ (tính tiền, lịch trả góp); Hiệp có thể kể viết test quanh tính tiến độ quest và luật claim ở Quest Engine (đừng nói là TDD nghiêm ngặt nếu không phải).
+- **Flaky test** do: thời gian thật, thứ tự test, dữ liệu dùng chung, mạng, `Task.Delay` chờ "đủ lâu". Sửa: fake clock, dữ liệu riêng mỗi test, chờ theo điều kiện, cô lập; không `[Skip]` để xanh CI.
+
+### B8.8 Framework .NET
+- **xUnit** (`[Fact]`, `[Theory]` + `[InlineData]`/`[MemberData]`, constructor/IDisposable cho setup, `IClassFixture`), **NUnit** (`[Test]`, `[TestCase]`), **MSTest** (`[TestMethod]`, `[DataRow]`).
+- Mock: **Moq**, NSubstitute; AutoFixture (+ AutoMoq) sinh dữ liệu; **AutoMocker** (Joblogic).
+- Assertion: FluentAssertions (v8 đổi license thương mại — biết để không gây tranh cãi), Shouldly, AwesomeAssertions (fork).
+
+### B8.9 Câu hỏi phỏng vấn & trả lời mẫu
+
+**Q1. What makes a good unit test?**
+> It tests one behaviour through the public API, is fast and independent of other tests and of the clock or network, has a name that describes the rule — like "payment above the balance is rejected" — and follows arrange–act–assert. It survives refactoring because it checks behaviour, not implementation details. And it fails for the right reason: I like to see a new test fail before the fix.
+
+**Q2. What do you mock and what don't you mock?**
+> I mock the edges: HTTP calls to providers, email and SMS, queues, the clock. I don't mock domain objects, and I don't mock DbContext or IQueryable, because a mocked query runs in memory and behaves differently from SQL — no constraints, no transactions, different translation. For data access I'd rather have a few integration tests against a real SQL Server in Testcontainers.
+
+**Q3. How do you test code that depends on the current time?**
+> Inject `TimeProvider` instead of calling `DateTime.Now`, and use `FakeTimeProvider` in tests. Then I can test the cases that break in production: daylight-saving transitions, month ends, leap years, and late-evening times on the US West Coast that are already tomorrow in UTC.
+
+**Q4. How would you add tests to a legacy codebase with none?**
+> Start with characterisation tests around the area I need to change — for example running a few hundred real quotes through the existing pricing code and recording the outputs — so I know if my change alters behaviour. Then introduce seams around the database, time and external calls so the logic can be tested in isolation, and refactor in small steps. I'd prioritise the money and state rules first, not chase coverage.
+
+**Q5. How do you test a payment webhook handler?**
+> Unit tests for the mapping and rules, and an integration test through the real endpoint with a real database: an invalid signature returns 401; a valid event writes one ledger entry; the same event delivered twice still produces one entry; and out-of-order events — a refund before the payment — end in the correct state. That last pair is where real bugs hide.
+
+**Q6. Is 100% coverage a good goal?**
+> No. Coverage tells you which lines ran, not whether anything meaningful was asserted, and chasing 100% produces tests of getters and mocks. I'd rather make sure every business rule that can cost money or corrupt data has a focused test, and use mutation testing occasionally to see whether the tests actually catch changes.
+
+### B8.10 Tự kiểm tra
+1. Vì sao không mock `DbContext` để test query? Thay bằng gì?
+2. Viết test chứng minh không overbook xe (ý tưởng + assertion).
+3. Characterization test là gì, khác unit test thường ở đâu?
+4. Ba nguyên nhân flaky test và cách sửa.
+5. Mutation testing đo cái gì mà coverage không đo?
 
 ---
 
-## B9. Frontend (React/TS) và hợp đồng FE–BE ⏳
+## B9. Frontend (React/TypeScript) và hợp đồng FE–BE
 
-> ⏳ **Chưa viết lại sâu.** Dưới đây là nội dung bản cũ (số tham chiếu section bên trong là số bản cũ, xem bảng đối chiếu ở 0.2). Claude sẽ viết lại trước khi Hiệp học tới.
+**Vì sao cần.** SA **gốc frontend** (React, TypeScript, UX/UI). JD tính React/Angular/Vue là điểm cộng. Hiệp có kinh nghiệm thật: PlaySweeps React 18 + Redux (~340 commit), EIM React + TanStack Query + Ant Design, Altar React 18 + Redux, admin Vue 3 + Pinia, Joblogic Razor + jQuery + Vue nhúng, Next.js storefront. **Thái độ:** không coi frontend là phụ; nói từ góc người dùng cuối.
 
-SA **gốc frontend**: React, TypeScript, HTML5, CSS, UX/UI, Front-end (pass LinkedIn assessment). JD: frontend là điểm cộng. Hiệp có thật: PlaySweeps React 18 + Redux (~340 commit), EIM React + TanStack Query + Ant Design, Altar React 18 + Redux, admin Vue 3 + Pinia, Joblogic Razor + jQuery + Vue nhúng, Next.js storefront.
-**Thái độ:** không nói "frontend chỉ là phụ"; thể hiện nghĩ cho người dùng cuối.
+### B9.1 JavaScript runtime: event loop (so với .NET)
+- JS trong trình duyệt/Node chạy **một thread** với **call stack**. Việc chờ (fetch, timer) được giao cho môi trường; xong thì callback vào hàng đợi.
+- **Microtask** (Promise `.then`, `await` tiếp tục) chạy **hết** trước khi lấy **macrotask** (setTimeout, sự kiện click, I/O). Ví dụ:
+```js
+console.log(1); setTimeout(() => console.log(2)); Promise.resolve().then(() => console.log(3)); console.log(4);
+// 1 4 3 2
+```
+- Code đồng bộ nặng (vòng lặp lớn, parse JSON khổng lồ) **chặn UI** (trang đơ, không bấm được) → Web Worker, chia nhỏ, virtualize.
+- So với .NET: Node = event loop + libuv; .NET = thread pool + async I/O. **Cả hai không chặn thread khi chờ I/O**; khác ở chỗ .NET chạy code của bạn trên nhiều thread song song (nên có race condition trong process), Node chạy JS trên một thread.
 
-### B9.1 JavaScript / TypeScript
-- `let`/`const` vs `var` (block scope vs function scope, hoisting); `==` vs `===`; closure; `this`; arrow function.
-- **Event loop**: call stack, microtask (Promise) chạy trước macrotask (setTimeout); JS đơn luồng. So với .NET: Node dùng event loop + libuv; .NET dùng thread pool + async I/O — cả hai đều không chặn khi chờ I/O.
-- Promise, `async/await`, `Promise.all` vs `allSettled`; xử lý lỗi `try/catch`.
-- TypeScript: `interface` vs `type`, union, generic, `unknown` vs `any`, `strict` mode, utility types (`Partial`, `Pick`, `Omit`, `Record`), type narrowing, discriminated union (hợp với ProblemDetails/Result).
-- Module ES, bundler (Vite, webpack), tree shaking.
+### B9.2 TypeScript cần nói được
+- `interface` vs `type`: interface mở rộng/merge được, hợp mô tả object; `type` làm được union, intersection, mapped type. Chọn một cách nhất quán.
+- `unknown` (phải thu hẹp kiểu trước khi dùng) vs `any` (tắt kiểm tra kiểu). Dữ liệu từ API → `unknown` + validate (Zod) ở ranh giới.
+- **Discriminated union** cho kết quả/trạng thái:
+```ts
+type ApiResult<T> = { ok: true; data: T } | { ok: false; problem: ProblemDetails };
+type DeliveryState = { kind: 'unscheduled' } | { kind: 'scheduled'; date: string; truckId: string } | { kind: 'delivered'; at: string };
+```
+- Utility types: `Partial`, `Pick`, `Omit`, `Record`, `Readonly`; `strict: true`.
 
-### B9.2 React
-- Component, props, state; **hooks**: `useState`, `useEffect` (dependency array, cleanup), `useMemo`, `useCallback`, `useRef`, `useContext`, custom hook.
-- Re-render khi state/props đổi; `key` trong list (không dùng index khi list đổi thứ tự); `React.memo`.
-- **State**: local state → lift state up → Context → Redux/Zustand cho global UI state. **Server state** khác client state → **TanStack Query** (cache, refetch, invalidate sau mutation, retry, stale time). Redux Toolkit/RTK Query.
-- **Form**: React Hook Form + Zod/Yup; hiển thị lỗi theo field từ ProblemDetails.
-- **Optimistic update** + rollback khi lỗi.
-- Performance: code splitting (`React.lazy`), virtualized list (danh sách lớn như production queue), debounce search, tránh re-render thừa.
-- React 18: concurrent rendering, automatic batching, `Suspense`. React 19 / Server Components (biết khái niệm), Next.js SSR/SSG.
-- Testing: React Testing Library, Jest/Vitest, Playwright cho E2E.
+### B9.3 React: render, state, effect
+- Component **render lại** khi state của nó đổi, khi parent render lại (trừ khi `React.memo` và props không đổi), hoặc khi context nó dùng đổi.
+- `key` trong list: dùng id ổn định, **không dùng index** khi list đổi thứ tự (hàng đợi sản xuất kéo-thả) → React tái sử dụng sai DOM/state.
+- `useEffect`: chạy **sau render**; dependency array sai → vòng lặp vô hạn hoặc dữ liệu cũ (stale closure); luôn **cleanup** (huỷ subscription, `AbortController` cho fetch). Nhiều logic "useEffect để tính toán dữ liệu" nên là tính trực tiếp trong render hoặc `useMemo`.
+- `useMemo`/`useCallback`: chỉ khi đo thấy chậm hoặc cần referential stability cho component memo.
+- **Server state vs client state**: dữ liệu từ API (orders, quotes) là **server state** — có cache, stale, refetch, invalidate → **TanStack Query** (EIM dùng) hoặc RTK Query; **client/UI state** (modal mở, tab đang chọn, form nháp) → `useState`/Context/Redux/Zustand. Nhét server state vào Redux tay → tự viết lại cache, loading, error, refetch.
+- Form: React Hook Form + Zod; map `errors` của ProblemDetails vào field.
+- **Optimistic update**: cập nhật UI ngay, rollback khi API lỗi (kéo-thả hàng đợi sản xuất), kết hợp 409 khi xung đột.
+- Hiệu năng: code splitting (`React.lazy`), **virtualized list** (TanStack Virtual) cho danh sách hàng nghìn dòng, debounce ô tìm kiếm, tránh re-render thừa.
+- React 18: automatic batching, concurrent rendering, `Suspense`; React 19/Server Components, Next.js SSR/SSG — biết khái niệm.
 
-### B9.3 HTML/CSS/UX
-- Semantic HTML (`<button>` không phải `<div onClick>`), **accessibility** (label cho input, alt cho ảnh, keyboard navigation, contrast, ARIA khi cần).
-- CSS: box model, flexbox, grid, responsive (media query, mobile-first), specificity; CSS modules / Tailwind / styled-components; design system (Ant Design, MUI).
-- UX từ góc backend: **loading / empty / error state**, thông báo lỗi dễ hiểu (không hiện stack), xác nhận hành động nguy hiểm (huỷ đơn), **undo** khi có thể, phân trang/infinite scroll, timezone hiển thị theo cửa hàng, định dạng tiền theo locale (`Intl.NumberFormat`), không cho submit 2 lần.
+### B9.4 Hợp đồng FE–BE
+- **OpenAPI** → sinh TypeScript types/client (openapi-typescript, NSwag, Orval) → BE đổi DTO thì FE **lỗi compile** thay vì lỗi runtime ở production.
+- Validation hai phía: FE cho UX nhanh, **BE là nguồn sự thật**.
+- Lỗi chuẩn ProblemDetails + `errorCode` ổn định → FE `switch(errorCode)` để hiện thông báo dễ hiểu (không hiện stack, không hiện "Error 500").
+- Thời gian: BE trả **UTC ISO 8601 có `Z`** cho thời điểm, `yyyy-MM-dd` cho **ngày lịch** (ngày giao); FE hiển thị theo **timezone của cửa hàng** (dữ liệu vận hành) bằng `Intl.DateTimeFormat(..., { timeZone: 'America/Chicago' })`. Tiền: `Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' })`; BE gửi tiền dạng **string hoặc số nguyên cent** nếu sợ sai số `number` của JS (double).
+- Việc chậm: 202 + poll hoặc **SignalR** push (trạng thái sinh PDF, production board realtime).
+- Upload lớn: presigned URL S3 thẳng từ trình duyệt.
 
-### B9.4 Hợp đồng FE–BE & bảo mật frontend
-- OpenAPI → sinh TypeScript types/client (openapi-typescript, NSwag). DTO ổn định, versioning.
-- Validation hai phía: FE để UX nhanh, **BE là nguồn sự thật**.
-- **Token**: ưu tiên **HttpOnly + Secure + SameSite cookie** (JS không đọc được → giảm rủi ro XSS lấy token) + CSRF protection; localStorage dễ bị XSS đánh cắp. SPA có thể dùng BFF (backend-for-frontend) giữ token phía server.
-- **CORS**: chỉ mở origin cần, không `*` khi có credentials. CORS không phải cơ chế bảo mật cho server, chỉ là chính sách trình duyệt.
-- XSS: React tự escape; nguy hiểm `dangerouslySetInnerHTML` → sanitize (DOMPurify); CSP header.
-- Thao tác chậm: 202 + poll hoặc SignalR/WebSocket push (trạng thái sinh PDF, cập nhật production board realtime).
-- File upload lớn: upload thẳng lên S3 bằng presigned URL, backend chỉ cấp URL + xác nhận.
+### B9.5 Bảo mật phía frontend
+- **XSS**: React tự escape `{value}`; nguy hiểm `dangerouslySetInnerHTML` (rich text điều khoản) → **DOMPurify** + **CSP** header. XSS lấy được mọi thứ JS đọc được → **token trong localStorage bị đánh cắp**; cookie `HttpOnly` thì không (nhưng XSS vẫn gửi request thay người dùng được).
+- **Lưu token**: ưu tiên **cookie HttpOnly + Secure + SameSite** (+ chống CSRF) hoặc mô hình **BFF (backend-for-frontend)**: server giữ token, trình duyệt chỉ có cookie phiên. Chi tiết C1.
+- **CORS** chỉ mở đúng origin; không phải lớp bảo vệ API (A2.6).
+- Ẩn nút trên UI **không phải** phân quyền; BE luôn kiểm tra.
 
-### B9.5 Razor MVC vs React SPA
-| | Razor (server render) | React SPA |
+### B9.6 UX từ góc backend (SA gốc FE sẽ thích)
+- Mọi màn hình có **loading / empty / error state**; lỗi nói người dùng làm gì tiếp.
+- Hành động nguy hiểm (huỷ đơn, hoàn tiền): xác nhận trong trang, nói rõ hậu quả; **undo** khi được.
+- Chống double submit (disable nút) + idempotency ở server.
+- Accessibility: `<button>` thật (không `<div onClick>`), `label` cho input, điều hướng bằng bàn phím, độ tương phản, `aria-*` khi cần.
+- Màn hình xưởng/tablet: nút to, ít bước, chịu wifi chập chờn (retry, trạng thái "đang đồng bộ").
+
+### B9.7 Razor (server render) vs React SPA
+| | Razor MVC | React SPA |
 |---|---|---|
-| Hợp | Form nội bộ, CRUD, ít tương tác, SEO | Màn hình tương tác cao: production board kéo-thả, lịch giao hàng, cấu hình sản phẩm |
-| Ưu | Đơn giản, một codebase, auth cookie sẵn | UX mượt, tách FE/BE, tái sử dụng API cho mobile |
-| Nhược | Tương tác phức tạp phải thêm JS | Thêm build pipeline, state, bảo mật token, SEO |
-| Thực tế | Joblogic dùng Razor + Vue nhúng cho phần tương tác | PlaySweeps, EIM dùng React |
+| Hợp | Form nội bộ, CRUD, ít tương tác, SEO | Tương tác cao: production board kéo-thả, lịch giao, cấu hình sản phẩm |
+| Ưu | Đơn giản, một codebase, cookie auth sẵn, không build JS phức tạp | UX mượt, tái dùng API cho mobile/driver app |
+| Nhược | Tương tác phức tạp phải thêm JS | Thêm build pipeline, state, bảo mật token |
+| Thực tế | Joblogic: Razor + Vue nhúng cho phần tương tác | PlaySweeps, EIM: React |
+Không phải chọn phe: **nhúng island** React/Vue vào Razor cho màn hình cần tương tác là cách tiến hoá dần một app MVC.
 
-### B9.6 Câu hỏi luyện
-1. How do you manage server state vs UI state in React?
-2. When does a React component re-render? How do you avoid unnecessary re-renders?
-3. `useEffect` — common mistakes?
-4. Where do you store the auth token in a SPA and why?
-5. What is CORS? Is it a security feature?
-6. How do you prevent XSS in React?
-7. How would you build a drag-and-drop production queue that two people may edit at once?
-8. How do you show validation errors from the API on a form?
-9. How would you design the UI/API around a 10-second PDF generation?
-10. When would you choose Razor over React?
-11. What makes a good error message for users?
-12. How do you make a page accessible?
-13. JavaScript event loop vs .NET thread pool?
-14. TypeScript `interface` vs `type`? `any` vs `unknown`?
-15. How would you display dates and money for stores in different time zones?
+### B9.8 Câu hỏi phỏng vấn & trả lời mẫu
+
+**Q1. How do you manage server state vs UI state in React?**
+> I treat data from the API as server state — it's cached, can go stale and needs refetching and invalidation — so I use TanStack Query, as on EIM, or RTK Query, and invalidate the relevant queries after a mutation. UI state like an open dialog or the selected tab stays local in `useState`, or in context when several components share it. Putting API data in Redux by hand means rewriting caching, loading and error handling yourself.
+
+**Q2. Where would you store the auth token in a SPA?**
+> I'd avoid localStorage, because any XSS can read it. The safer default is an HttpOnly, Secure, SameSite cookie, with CSRF protection for state-changing requests, or a backend-for-frontend that keeps the tokens on the server and gives the browser only a session cookie. Either way, XSS is still dangerous, so CSP and sanitising rich text matter too.
+
+**Q3. How would you build a drag-and-drop production queue that two managers may edit at once?**
+> On the front end, an optimistic reorder with a virtualised list if it's long, sending "put job X between A and B" rather than a number. The API stores a sortable position and checks a row version; if another manager changed the queue, it returns 409 and the UI rolls back and reloads. A SignalR event refreshes other open screens so conflicts are rare.
+
+**Q4. How do you show API validation errors on a form?**
+> The API returns ProblemDetails with an `errors` dictionary keyed by field name and a stable error code for business rules. The form library maps field errors next to the inputs and shows business errors in plain language, without technical details. The same rules are validated on the client for fast feedback, but the server stays the source of truth.
+
+**Q5. How would you display dates and money for stores in different time zones?**
+> The API sends instants as UTC ISO strings and calendar dates like delivery days as plain dates. The UI formats instants in the store's time zone, not the browser's, because a dispatcher in Texas viewing a Florida store's schedule needs the store's day. Money is formatted with `Intl.NumberFormat`, and I avoid doing money arithmetic in JavaScript numbers.
+
+**Q6. When would you choose Razor over React?**
+> Razor for internal forms and CRUD screens where server rendering is simpler and cookie auth comes for free; React for highly interactive screens like a scheduling board. In an existing MVC app I'd embed React or Vue islands where interaction is needed, as Joblogic did with Vue, rather than rewriting everything as a SPA.
+
+### B9.9 Tự kiểm tra
+1. In ra thứ tự của đoạn code event loop ở B9.1 và giải thích.
+2. Vì sao dùng index làm `key` hỏng khi kéo-thả?
+3. Server state khác client state ở đâu? Công cụ cho mỗi loại.
+4. Token trong localStorage vs cookie HttpOnly: mỗi cái chống/không chống được gì?
+5. FE nhận ngày giao `2026-11-02` thì hiển thị thế nào để không lệch ngày?
 
 ---
 
