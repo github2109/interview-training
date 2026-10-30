@@ -36,9 +36,9 @@ Ký hiệu trạng thái: ⬜ chưa học · 📖 đang học · ✅ xong (đã 
 | B8 | Unit test, integration test | SA | Cao 65% | ⬜ |
 | B9 | Frontend (React/TS) và hợp đồng FE–BE | SA | Trung bình–Cao 60% | ⬜ |
 | **C** | **HỆ THỐNG VÀ VẬN HÀNH (NÂNG CAO)** | | | |
-| C1 | Authentication: stateful vs stateless, session cookie vs JWT, refresh, revoke | SA | Cao (Agapi đã hỏi) | ⏳ |
-| C2 | Security: OWASP, secret, bảo vệ tiền trước người nội bộ | SA | Trung bình–Cao | ⏳ |
-| C3 | Concurrency dữ liệu và idempotency xuyên hệ thống | SA | Cao 60% | ⏳ |
+| C1 | Authentication: stateful vs stateless, session cookie vs JWT, refresh, revoke | SA | Cao (Agapi đã hỏi) | ⬜ |
+| C2 | Security: OWASP, secret, bảo vệ tiền trước người nội bộ | SA | Trung bình–Cao | ⬜ |
+| C3 | Concurrency dữ liệu và idempotency xuyên hệ thống | SA | Cao 60% | ⬜ |
 | C4 | Redis: bản chất, persistence RDB/AOF, khi Redis chết, distributed lock, cache | SA | Trung bình–Cao (Agapi đã hỏi) | ⏳ |
 | C5 | Messaging, background job, outbox, saga | SA | Trung bình 50% | ⏳ |
 | C6 | Scale và load balancer: thuật toán, sticky session, health check, CAP | SA | Trung bình–Cao (Agapi đã hỏi) | ⏳ |
@@ -2131,90 +2131,326 @@ Không phải chọn phe: **nhúng island** React/Vue vào Razor cho màn hình 
 
 ---
 
-## C1. Authentication: stateful vs stateless, session cookie vs JWT ⏳
+## C1. Authentication: stateful vs stateless, session cookie vs JWT, refresh, revoke
 
-> ⏳ **Chưa viết lại sâu.** Nội dung cũ nằm ở C2 mục "AuthN / AuthZ". Sẽ viết lại sâu: stateful vs stateless, session cookie vs JWT, refresh token, revoke, CSRF/XSS.
+**Vì sao cần.** Câu Agapi "khi nào dùng JWT, khi nào dùng cookie" thực chất hỏi **stateful vs stateless authentication**, và bạn đã nhầm vì gộp hai trục khác nhau: **token là gì** (session id hay JWT) và **gửi bằng cách nào** (cookie hay header). Phần này tách hai trục đó ra, rồi đi vào thu hồi token, refresh token, nơi lưu, OAuth/OIDC.
+
+### C1.1 Hai trục độc lập — gỡ nhầm lẫn trước
+| | Gửi bằng **cookie** (trình duyệt tự gửi) | Gửi bằng **header `Authorization: Bearer`** (code tự gắn) |
+|---|---|---|
+| **Session id** (chuỗi ngẫu nhiên, server tra kho) → **stateful** | Web MVC kinh điển (ASP.NET session, PHP session) | Hiếm (API key/opaque token tra DB) |
+| **JWT** (token tự chứa, có chữ ký) → **stateless** | SPA để JWT trong cookie HttpOnly | API cho mobile, SPA, service-to-service |
+→ "JWT hay cookie" là câu hỏi sai trục. Câu đúng: **server có phải giữ trạng thái đăng nhập không** (stateful/stateless), và **trình duyệt gửi bằng gì** (cookie → lo CSRF; header → token phải nằm chỗ JS đọc được → lo XSS).
+
+### C1.2 Stateful (session phía server)
+1. Đăng nhập đúng → server tạo **session id ngẫu nhiên** (≥ 128 bit), lưu `sessionId → { userId, tenantId, roles, expiresAt }` trong **kho session** (RAM, Redis, SQL).
+2. Gửi về `Set-Cookie: sid=...; HttpOnly; Secure; SameSite=Lax`.
+3. Mỗi request: đọc cookie → **tra kho** → biết là ai.
+- **Ưu**: **thu hồi tức thì** (xoá session = đăng xuất ngay, "đăng xuất mọi thiết bị", khoá tài khoản bị lộ); cookie nhỏ; dữ liệu nhạy cảm nằm ở server; đổi quyền có hiệu lực ngay.
+- **Nhược**: mỗi request **một lần tra kho** (Redis ~0,5 ms — thường không đáng kể); nhiều instance phải dùng **kho chung** (Redis), nếu kho ở RAM từng instance thì cần **sticky session** ở load balancer → instance chết là mất phiên, phân tải lệch (C6); kho session thành phụ thuộc quan trọng (Redis chết = mọi người bị đăng xuất, C4).
+
+### C1.3 Stateless (JWT)
+- **JWT** = `base64url(header).base64url(payload).signature`:
+```json
+{ "alg": "RS256", "kid": "2026-10" }
+{ "sub": "user-123", "tenant": "acme-sheds", "role": "Dispatcher", "iss": "https://auth.opshub.com",
+  "aud": "opshub-api", "iat": 1793350000, "exp": 1793350900, "jti": "7f1c..." }
+```
+- Payload **chỉ được mã hoá base64, không bí mật** → ai cầm token cũng đọc được → không bỏ dữ liệu nhạy cảm.
+- **Chữ ký** chống sửa: **HS256** (một secret chung cho ký và kiểm — mọi service kiểm cũng ký được), **RS256/ES256** (khoá riêng chỉ ở auth server, các API kiểm bằng **khoá công khai** lấy từ endpoint **JWKS**, `kid` để xoay khoá).
+- Server kiểm: chữ ký, `exp` (hết hạn), `nbf`, `iss`, `aud`, thuật toán cho phép (chặn `alg: none`). ASP.NET Core: `AddAuthentication().AddJwtBearer(...)` với `TokenValidationParameters`; mặc định **ClockSkew = 5 phút** (token hết hạn vẫn được chấp nhận thêm 5 phút — biết để không ngạc nhiên).
+- **Ưu**: không tra kho → mọi instance/service tự kiểm được → **scale ngang dễ**, hợp microservices và mobile; không cần sticky session.
+- **Nhược lớn nhất: không thu hồi được trước khi hết hạn.** Token bị lộ hoặc user bị khoá vẫn dùng được tới `exp`. Đổi role → token cũ vẫn mang role cũ. Token to (nhiều claim) → mỗi request mang theo vài KB.
+
+### C1.4 Thu hồi JWT — các cách và cái giá
+1. **Access token ngắn hạn** (5–15 phút) + **refresh token** dài hạn → lộ access token thì thiệt hại tối đa 15 phút.
+2. **Refresh token là stateful**: lưu trong DB (hash), có thể thu hồi; mỗi lần dùng **xoay vòng (rotation)**: cấp refresh token mới, vô hiệu cái cũ; nếu cái cũ bị dùng lại → **phát hiện tái sử dụng (reuse detection)** → huỷ cả họ token (dấu hiệu bị đánh cắp).
+3. **Denylist theo `jti`** trong Redis tới khi hết hạn → kiểm mỗi request → **thực chất đã quay lại stateful** một phần (nhưng chỉ cho token bị thu hồi, kho nhỏ).
+4. **Token version / security stamp**: lưu `TokenVersion` trên user; token mang version; đổi mật khẩu/khoá → tăng version → token cũ fail (cần tra user, thường có cache).
+→ Câu Senior: **"stateless thuần thì không thu hồi được; mọi cơ chế thu hồi đều thêm trạng thái — chọn ít trạng thái nhất đủ cho yêu cầu bảo mật."**
+
+### C1.5 Nơi lưu token phía trình duyệt: XSS vs CSRF
+| Nơi | XSS đọc được? | CSRF? | Ghi chú |
+|---|---|---|---|
+| `localStorage` / `sessionStorage` | **Có** → bị đánh cắp, dùng từ máy kẻ tấn công | Không (JS tự gắn header) | Dễ làm, rủi ro cao nhất |
+| Biến trong RAM (JS) | Có (khi đang chạy), mất khi F5 | Không | Kết hợp refresh token trong cookie HttpOnly |
+| **Cookie HttpOnly + Secure + SameSite** | **Không đọc được** (nhưng XSS vẫn gửi request *thay* người dùng được trong lúc trang mở) | **Có** → cần SameSite + anti-forgery token | Mặc định an toàn hơn cho web |
+- **BFF (Backend-for-Frontend)**: SPA nói chuyện với một backend cùng domain bằng **cookie phiên**; BFF giữ access/refresh token phía server và gắn vào request tới API. Đây là khuyến nghị hiện tại cho SPA (OAuth 2.0 for Browser-Based Apps).
+- Mobile app: lưu token trong **Keychain/Keystore**, gửi bằng header — không có CSRF.
+
+### C1.6 ASP.NET Core: cookie authentication thực ra là gì
+- `AddCookie()` mặc định lưu **toàn bộ "authentication ticket" (claims) đã mã hoá** bằng **Data Protection** trong cookie → về bản chất là **stateless** (giống JWT nhưng định dạng riêng, chỉ app đó giải được). Nhiều instance phải **chia sẻ key ring Data Protection** (Redis, Blob, DB), nếu không cookie do instance A tạo, instance B không đọc được → đăng xuất ngẫu nhiên sau deploy/scale.
+- Muốn **stateful thật** (thu hồi tức thì, cookie nhỏ): cấu hình `SessionStore` = `ITicketStore` (Redis) → cookie chỉ chứa key.
+- `SecurityStampValidator` (Identity) kiểm lại định kỳ (mặc định 30 phút) để đổi mật khẩu có hiệu lực.
+- Nói được điều này là điểm Senior: "cookie" không có nghĩa là "stateful".
+
+### C1.7 OAuth 2.0 và OpenID Connect (đủ để không lúng túng)
+- **OAuth 2.0** = **uỷ quyền (authorization)**: app được cấp **access token** để gọi API thay mặt người dùng. **OIDC** = lớp **xác thực** trên OAuth: thêm **ID token** (JWT nói "người này là ai") + endpoint userinfo.
+- Flow:
+  - **Authorization Code + PKCE**: web, SPA, mobile (thay implicit flow cũ). Người dùng đăng nhập ở **identity provider** (Entra ID, Cognito, Auth0, Keycloak), app nhận code → đổi lấy token.
+  - **Client Credentials**: **service-to-service** (worker gọi API, không có người dùng).
+- Không tự viết auth server nếu không cần; dùng provider hoặc ASP.NET Core Identity / Duende / OpenIddict.
+
+### C1.8 Chọn gì cho tình huống nào
+| Tình huống | Chọn | Lý do |
+|---|---|---|
+| Web MVC/Razor cùng domain (back-office Ops Hub) | Cookie auth (ticket hoặc session store) + anti-forgery | Đơn giản, trình duyệt tự gửi, chống CSRF có sẵn |
+| SPA React cùng site | Cookie HttpOnly qua **BFF** | Tránh token trong JS |
+| Mobile app (driver app) | OIDC code + PKCE, access JWT ngắn + refresh token xoay vòng, header Bearer | Không có cookie jar ổn định, cần offline/refresh |
+| API cho đối tác / webhook | API key hoặc Client Credentials, ký HMAC cho webhook | Không có người dùng |
+| Nhiều microservice kiểm token | JWT RS256 + JWKS | Mỗi service tự kiểm, không gọi auth server mỗi request |
+| Yêu cầu khoá tài khoản tức thì (tiền, KYC) | Session stateful hoặc JWT rất ngắn + kiểm token version | Cần thu hồi ngay |
+
+### C1.9 Gắn với dự án thật (nói trung thực)
+- **EIM** (NestJS): JWT với Passport (career facts).
+- **PlaySweeps**: Hiệp nhớ là **JWT đặt trong cookie và có sessionId bên trong**. **[Hiệp xác nhận]**: mỗi request server có kiểm sessionId với Redis/DB không? Nếu có → đó là **hybrid**: JWT để mang claim + chữ ký, sessionId để thu hồi (stateful) — nói đúng như vậy là câu trả lời rất tốt. Nếu không kiểm → thực chất stateless, thu hồi phụ thuộc thời hạn token.
+- **Joblogic**: back-office MVC cookie-authenticated (anti-forgery trên form).
+- Rate limit đăng nhập/OTP theo exponential backoff (PlaySweeps), MFA + trusted device (PlaySweeps).
+
+### C1.10 Bẫy hay sai
+- "JWT vs cookie" như hai lựa chọn cùng loại.
+- "JWT được mã hoá nên an toàn" → chỉ ký, không mã hoá (trừ JWE).
+- "Stateless thì thu hồi bằng cách xoá token ở client" → kẻ cắp token không xoá.
+- HS256 dùng chung secret giữa nhiều service → service nào cũng giả token được.
+- Không kiểm `aud`/`iss`; chấp nhận `alg: none`.
+- "Cookie auth của ASP.NET Core là session phía server" → mặc định là ticket mã hoá trong cookie.
+
+### C1.11 Câu hỏi phỏng vấn & trả lời mẫu
+
+**Q1. (Agapi) When would you use JWT and when cookie-based authentication?**
+> I'd first separate two questions: what the token is, and how it travels. A cookie is just a transport the browser sends automatically; a JWT is a token format. The real choice is stateful versus stateless. Stateful means the client holds an opaque session ID and the server looks it up in a store on every request — easy to revoke instantly, but every instance needs a shared store like Redis. Stateless means a signed token like a JWT carries the claims, so any instance can verify it without a lookup — great for scaling and microservices, but you can't revoke it before it expires. For a server-rendered back office on one domain, I'd use cookie authentication with anti-forgery tokens. For a SPA, a cookie via a backend-for-frontend so tokens never sit in JavaScript. For mobile apps and service-to-service calls, short-lived JWT access tokens in the Authorization header with rotating refresh tokens.
+
+**Q2. (Agapi) What's the difference between stateful and stateless authentication?**
+> In stateful authentication the server keeps the session: the cookie only has a random ID, and each request is resolved against a session store. In stateless authentication the token itself contains the identity and is signed, so the server only verifies the signature and expiry. The trade-off is control versus independence: stateful gives instant logout and permission changes at the cost of a lookup and a shared store; stateless removes the lookup and sticky sessions but makes revocation hard, so in practice we add short expiry, refresh tokens and sometimes a denylist — which is a small amount of state brought back on purpose.
+
+**Q3. How do you revoke a JWT?**
+> You can't revoke a pure stateless token, so I limit the damage and add just enough state. Access tokens live five to fifteen minutes; refresh tokens are stored hashed in the database and rotated on every use, with reuse detection that kills the whole token family if an old one shows up. For immediate cases — a compromised account, a password change — I either keep a denylist of token IDs in Redis until they expire, or put a token version on the user that the API checks, usually cached.
+
+**Q4. Where should a web app store its tokens?**
+> Not in localStorage, since any XSS can read it and use it from anywhere. An HttpOnly, Secure, SameSite cookie can't be read by script, which removes token theft, but it brings CSRF back, so state-changing requests need SameSite plus an anti-forgery token. For SPAs I prefer a backend-for-frontend that holds the OAuth tokens server-side and gives the browser only a session cookie.
+
+**Q5. What's inside a JWT and how is it validated?**
+> A header with the algorithm and key ID, a payload with claims like subject, tenant, roles, issuer, audience and expiry, and a signature. The payload is only base64-encoded, so it must not contain secrets. The API validates the signature with the issuer's public key from its JWKS endpoint, then the expiry, issuer, audience and allowed algorithms. I prefer asymmetric signing so APIs can verify but never mint tokens.
+
+**Q6. We run several instances. What breaks with authentication?**
+> With server-side sessions in memory, a user hitting another instance looks logged out unless the load balancer is sticky — so I'd put sessions in Redis. With ASP.NET Core cookie auth, the cookie is encrypted with Data Protection keys, so all instances must share the key ring, otherwise cookies break after every deploy or scale-out. With JWTs, instances only need the signing keys, and key rotation has to be handled through key IDs.
+
+**Q7. OAuth 2.0 vs OpenID Connect?**
+> OAuth is about authorisation — getting an access token to call an API on someone's behalf. OpenID Connect adds authentication on top: an ID token that says who the user is. For browsers and mobile apps I'd use the authorisation code flow with PKCE against an identity provider; for service-to-service calls, client credentials.
+
+### C1.12 Tự kiểm tra
+1. Vẽ bảng 2×2 (session id/JWT × cookie/header) và một ví dụ mỗi ô.
+2. Ba cách thu hồi JWT và cái giá của mỗi cách.
+3. Cookie HttpOnly chống được gì, không chống được gì? localStorage thì sao?
+4. ASP.NET Core cookie auth mặc định stateful hay stateless? Chạy 3 instance cần cấu hình gì?
+5. HS256 vs RS256 khi có 5 service cùng kiểm token.
+6. Trả lời lại câu Agapi trong 45 giây bằng tiếng Anh.
 
 ---
 
-## C2. Security: OWASP, secret, bảo vệ tiền trước người nội bộ ⏳
+## C2. Security: OWASP, secret, dữ liệu nhạy cảm, bảo vệ tiền trước người nội bộ
 
-> ⏳ **Chưa viết lại sâu.** Dưới đây là nội dung bản cũ (số tham chiếu section bên trong là số bản cũ, xem bảng đối chiếu ở 0.2). Claude sẽ viết lại trước khi Hiệp học tới.
+**Vì sao cần.** Câu Agapi số 2: *"director có tất cả secret key của Sweeps → có thể tự cộng tiền; làm sao ngăn khi anh ấy có toàn quyền?"* — bạn chưa trả lời được. Đây là câu **Senior+** về **insider threat (mối đe doạ nội bộ)**: không có thuật toán nào chặn một người thật sự có toàn quyền mọi thứ, nên câu trả lời đúng là **thiết kế để không ai có toàn quyền một mình**, và **mọi thay đổi tiền đều để lại dấu vết không xoá được và bị đối soát độc lập**. Ops Hub cũng có tiền (deposit, RTO, refund), nên SA có nền ngân hàng/đối soát (Urbanise) có thể hỏi tương tự.
 
-### C2.1 OWASP API Top 10 (2023) — nói được 5–6 cái với ví dụ Ops Hub
-1. **Broken Object Level Authorization (BOLA/IDOR)**: `GET /orders/123` không kiểm tra order thuộc tenant/store của user → **kiểm tra quyền theo resource** mọi lần, không chỉ đăng nhập. Rủi ro số 1 của SaaS multi-tenant.
-2. **Broken Authentication**: token yếu, không hết hạn, không rate limit login → MFA, khoá tạm/exponential backoff (PlaySweeps).
-3. **Broken Object Property Level Authorization**: lộ field nhạy cảm trong response / cho sửa field không được phép (over-posting) → DTO riêng.
-4. **Unrestricted Resource Consumption**: không giới hạn page size, upload, rate → limit.
-5. **Broken Function Level Authorization**: user thường gọi được endpoint admin → policy theo role/permission.
-6. **Unrestricted access to sensitive business flows**: bot spam đặt hàng/quote → rate limit, CAPTCHA.
-7. **SSRF**: server fetch URL do user gửi (vd. ảnh từ URL) → whitelist.
-8. **Security misconfiguration**: CORS `*`, lỗi lộ stack trace, header bảo mật thiếu.
-9. **Improper inventory management**: API cũ/không tài liệu vẫn chạy.
-10. **Unsafe consumption of APIs**: tin dữ liệu từ bên thứ ba mà không validate.
-Thêm (web): **SQL injection** (luôn parameterize; Dapper `@param`; không nối chuỗi), **XSS** (encode output, sanitize rich text, CSP), **CSRF** (anti-forgery token với cookie auth, SameSite).
+### C2.1 Khung tư duy: phòng ngừa, phát hiện, răn đe, khôi phục
+- **Prevent (ngăn)**: giảm ai có thể làm gì (least privilege, tách quyền, không có secret dạng đọc được).
+- **Detect (phát hiện)**: mọi thay đổi để lại dấu vết **chống sửa (tamper-evident)**, đối soát với nguồn độc lập, cảnh báo bất thường.
+- **Deter (răn đe)**: người làm biết chắc sẽ bị phát hiện và truy vết tới tên mình.
+- **Recover (khôi phục)**: sổ cái cho phép đảo bút toán, backup bất biến.
+Câu chốt: *"You can't stop someone who truly controls everything, so the design goal is that nobody does — and that any change to money is attributable, tamper-evident and reconciled against a system they don't control."*
 
-### C2.2 AuthN / AuthZ
-- **Authentication** = bạn là ai; **Authorization** = bạn được làm gì. 401 vs 403.
-- **Cookie** (server-side session/ticket, hợp MVC, cần CSRF protection) vs **JWT bearer** (stateless, hợp API/mobile; khó thu hồi → hết hạn ngắn + refresh token xoay vòng; không lưu dữ liệu nhạy cảm trong payload vì chỉ base64).
-- **OAuth 2.0** (uỷ quyền) / **OpenID Connect** (đăng nhập, id token); Authorization Code + PKCE cho SPA/mobile.
-- ASP.NET Core: `[Authorize]`, **policy-based** (`RequireClaim`, requirement + handler), **resource-based** (`IAuthorizationService.AuthorizeAsync(user, order, "CanEdit")`).
-- **RBAC** (role) vs permission chi tiết (Joblogic: permission mapping) vs ABAC (thuộc tính: store, region).
-- Multi-tenant: tenant từ claim, không từ request.
+### C2.2 Trả lời câu "director có mọi secret key" — từng lớp
+**1. Không để secret ở dạng con người đọc được (giảm thứ để "có").**
+- App lấy credential qua **workload identity**: **Managed Identity** (Azure) / **IAM role** (AWS) → không có connection string/API key tĩnh nào để người ta copy.
+- Secret còn lại nằm trong **Key Vault / Secrets Manager**, quyền **đọc giá trị** chỉ cấp cho identity của app; con người chỉ có quyền quản trị (tạo/xoay) chứ không đọc, và mọi lần truy cập **được log**.
+- Khoá ký/mã hoá quan trọng nằm trong **KMS/HSM, không export được (non-exportable)**: người có quyền chỉ gọi được thao tác "ký"/"giải mã" qua API (có log), không lấy được khoá ra ngoài.
+- **Xoay vòng (rotation)** secret định kỳ và ngay khi có người rời công ty.
 
-### C2.3 Lưu password & dữ liệu nhạy cảm
-- Password: **hash chậm có salt** — Argon2id, bcrypt, PBKDF2 (ASP.NET Core Identity `PasswordHasher` dùng PBKDF2). Không MD5/SHA256 thuần, không mã hoá hai chiều.
-- Dữ liệu nhạy cảm (SSN, thông tin tín dụng của khách RTO): mã hoá at rest (KMS, TDE, Always Encrypted), in transit (TLS), **không log**, mask khi hiển thị, giới hạn quyền xem, giữ tối thiểu. Thẻ thanh toán → để provider giữ (tokenization), mình không lưu số thẻ (PCI DSS).
-- Secret: không trong code/git; Secrets Manager; xoay vòng; secret scanning.
+**2. Least privilege và tách quyền (separation of duties).**
+- Tài khoản DB của app chỉ được **EXECUTE stored procedure ghi ledger**, không có quyền `UPDATE Wallets` trực tiếp; không ai dùng tài khoản app để đăng nhập tay.
+- Quyền production cho người: **Just-In-Time (JIT) access** (Azure PIM, AWS IAM Identity Center + approval) — xin quyền có thời hạn, có lý do, **người thứ hai duyệt**, tự hết hạn; **break-glass account** cho khẩn cấp, dùng là báo động.
+- Người viết code ≠ người duyệt deploy ≠ người có quyền DB production; branch protection + bắt buộc review (một người không tự merge và deploy code cộng tiền).
 
-### C2.4 Bảo vệ API khỏi lạm dụng
-- Rate limiting theo user/IP/API key/tenant (fixed/sliding window, token bucket) ở gateway hoặc app (.NET `AddRateLimiter`), lưu counter ở Redis khi nhiều instance; trả 429 + `Retry-After`.
-- Exponential backoff cho login/OTP (PlaySweeps), CAPTCHA, WAF, giới hạn kích thước request/page size, timeout.
+**3. Thay đổi tiền bằng tay phải qua quy trình (maker–checker / dual control).**
+- Không có màn hình/endpoint "sửa số dư". Điều chỉnh tay = **bút toán điều chỉnh (adjustment)** trong ledger, người tạo (maker) ≠ người duyệt (checker), có lý do, có ngưỡng (trên X USD cần 2 người duyệt).
 
-### C2.5 File upload
-Kiểm tra loại file (magic bytes, không tin extension), giới hạn kích thước, quét virus, lưu S3 private với tên ngẫu nhiên, không thực thi, presigned URL để tải.
+**4. Sổ cái chỉ ghi thêm + chống sửa (append-only, tamper-evident).**
+- Balance là **kết quả** của ledger (A6.5). Tự "cộng tiền" bằng UPDATE thẳng balance → **lệch với tổng ledger** → đối soát bắt được.
+- **Double-entry (bút toán kép)**: mọi khoản cộng cho player phải có khoản trừ tương ứng ở tài khoản nguồn (khuyến mãi, doanh thu, payout) → tiền "từ trên trời rơi xuống" hiện ra ngay.
+- **Chống sửa lịch sử**: SQL Server 2022 / Azure SQL **Ledger tables** (mỗi dòng được băm thành chuỗi, digest lưu ra ngoài — sửa dòng cũ là bị phát hiện), hoặc tự làm **hash chain** (mỗi bút toán chứa hash của bút toán trước). Audit log đẩy sang **storage bất biến (WORM)**: S3 Object Lock / Azure immutable blob, ở **account khác** mà director không có quyền xoá.
 
-### C2.6 Câu hỏi luyện
-1. What are the most common security risks in a backend API? Give examples here.
-2. Authentication vs authorization?
-3. How do you stop a user from seeing another company's order? (BOLA)
-4. Cookie vs JWT? How do you revoke a JWT?
-5. How should passwords be stored?
-6. How do you prevent SQL injection, XSS and CSRF?
-7. How do you protect sensitive customer data (SSN, credit information)?
-8. How do you protect a public API from abuse?
-9. How do you handle file uploads securely?
-10. Where do you store secrets?
+**5. Đối soát với nguồn độc lập (reconciliation).**
+- Số dư tổng của hệ thống so với: payment provider/ngân hàng (tiền thật vào/ra), **Nexus** (ở PlaySweeps, Sweeps Coin do PLAYSTUDIOS sở hữu — một bên khác giữ sổ), báo cáo kế toán. Job hằng ngày: lệch → cảnh báo cho **người không thuộc nhóm có quyền sửa** (finance/security).
+
+**6. Phát hiện bất thường và giám sát quyền.**
+- Alert: điều chỉnh số dư ngoài giờ, khoản cộng lớn bất thường, truy cập Key Vault/KMS bất thường, đăng nhập break-glass, thay đổi IAM policy. Log quản trị (CloudTrail, Azure Activity Log) gửi ra SIEM ở account riêng.
+- Rút tiền (redemption) lớn → **manual review/KYC** (PlaySweeps có redemption qua Skrill/ACH/Prizeout/Paysafe và Socure KYC) → tiền giả trong hệ thống khó biến thành tiền thật.
+
+### C2.3 OWASP API Security Top 10 (2023) — nói được 5–6 cái có ví dụ
+1. **BOLA/IDOR (Broken Object Level Authorization)**: `GET /orders/123` không kiểm order thuộc tenant/store của user → **kiểm quyền theo resource mọi lần** (`WHERE Id = @id AND TenantId = @tenant`, resource-based authorization). Rủi ro số 1 của SaaS multi-tenant.
+2. **Broken Authentication**: token không hết hạn, không rate limit đăng nhập → MFA, exponential backoff (PlaySweeps), khoá tạm.
+3. **Broken Object Property Level Authorization**: lộ field nhạy cảm trong response, cho sửa field không được phép (over-posting) → DTO riêng.
+4. **Unrestricted Resource Consumption**: không giới hạn page size, upload, tần suất → limit, timeout.
+5. **Broken Function Level Authorization**: user thường gọi được endpoint admin → policy theo role/permission ở server.
+6. **Unrestricted Access to Sensitive Business Flows**: bot đặt hàng/spam quote, lạm dụng khuyến mãi (multi-account abuse ở PlaySweeps) → rate limit, device fingerprint, CAPTCHA.
+7. **SSRF**: server fetch URL người dùng gửi (ảnh từ URL) → whitelist host, chặn IP nội bộ/metadata (169.254.169.254).
+8. **Security Misconfiguration**: CORS `*`, stack trace trong lỗi, thiếu security header, bucket public.
+9. **Improper Inventory Management**: API cũ/không tài liệu vẫn chạy.
+10. **Unsafe Consumption of APIs**: tin dữ liệu bên thứ ba mà không validate.
+Web cổ điển: **SQL injection** (luôn tham số hoá), **XSS** (encode output, sanitize rich text, CSP), **CSRF** (anti-forgery + SameSite, B2.4).
+
+### C2.4 Mật khẩu và dữ liệu nhạy cảm
+- Mật khẩu: **hash chậm có salt** — Argon2id, bcrypt, scrypt, PBKDF2 (ASP.NET Core Identity `PasswordHasher` dùng PBKDF2 với nhiều vòng lặp). Không MD5/SHA-256 thuần (GPU thử hàng tỉ lần/giây), không mã hoá hai chiều.
+- Dữ liệu nhạy cảm (SSN, thông tin tín dụng khách RTO, giấy tờ KYC):
+  - **Mã hoá khi truyền** (TLS) và **khi lưu** (TDE cho cả DB; **Always Encrypted** / mã hoá cột ở tầng app với khoá trong KMS cho cột cực nhạy cảm — DBA cũng không đọc được).
+  - **Không log**, mask khi hiển thị (`***-**-1234`), quyền xem riêng, có audit ai xem.
+  - **Giữ tối thiểu** (data minimisation), có thời hạn xoá.
+  - Thẻ thanh toán: **không lưu** — để provider giữ (tokenization), giảm phạm vi **PCI DSS**.
+
+### C2.5 Secret trong vòng đời phát triển
+- Không trong code/git/appsettings commit; local dùng **User Secrets**; CI dùng secret store của pipeline + **OIDC federation** tới cloud (không access key dài hạn).
+- **Secret scanning** (GitHub, gitleaks) chặn commit; lỡ commit → **xoay secret ngay** (xoá lịch sử git là phụ, coi như đã lộ).
+
+### C2.6 Bảo vệ API khỏi lạm dụng, file upload
+- Rate limit theo user/IP/API key/tenant (fixed/sliding window, token bucket), counter ở Redis khi nhiều instance, trả 429 + `Retry-After`; WAF; giới hạn kích thước request.
+- File upload: kiểm loại bằng **magic bytes** (không tin extension/Content-Type), giới hạn kích thước, quét virus, lưu **S3 private** tên ngẫu nhiên, không bao giờ thực thi, tải về bằng presigned URL sau khi kiểm quyền.
+
+### C2.7 Bẫy hay sai
+- Trả lời câu insider bằng "mã hoá dữ liệu" (người có khoá vẫn giải được) hoặc "không thể ngăn" rồi dừng.
+- "Ẩn nút trên UI là đủ phân quyền".
+- Hash mật khẩu bằng SHA-256.
+- Log full request body có SSN/token.
+- Tin `X-Forwarded-For` từ client khi rate limit theo IP.
+
+### C2.8 Câu hỏi phỏng vấn & trả lời mẫu
+
+**Q1. (Agapi) A director has every secret key of the platform and could credit money to himself. How do you prevent it?**
+> If one person truly controls everything, you can't technically stop them — so the design goal is that nobody does, and that any money change is attributable, tamper-evident and reconciled against something they don't control. First, reduce what can be held: services use managed identities instead of static secrets, remaining secrets live in a vault that only the application identity can read, and signing keys sit in a KMS or HSM where they can be used but never exported, with every use logged. Second, separation of duties: production database access is just-in-time with a second approver, the application's database account can only execute the ledger procedures, and code that touches money can't be merged and deployed by the same person. Third, there's no "edit balance" anywhere: balances are derived from an append-only, double-entry ledger, manual adjustments need maker–checker approval, and the ledger is tamper-evident — SQL Server ledger tables or a hash chain — with audit logs shipped to immutable storage in a separate account. Finally, daily reconciliation against independent sources — the payment provider, the bank, or in PlaySweeps' case Nexus, which PLAYSTUDIOS owned — with alerts going to finance or security, not to the person who could change the data. Large redemptions also go through KYC and manual review, so fake credit is hard to turn into real money.
+
+**Q2. What are the most common API security risks? Give examples here.**
+> The top one for multi-tenant SaaS is broken object-level authorisation: `GET /orders/123` returning another company's order because we only checked that the user was logged in. I scope every query by tenant and use resource-based authorisation. Then broken authentication — no expiry or no rate limiting on login; over-exposed or over-posted properties, solved with dedicated DTOs; unbounded resource use like huge page sizes; admin endpoints reachable by normal users; and abuse of business flows like bots creating quotes. Plus the classics: parameterised SQL, output encoding and sanitised rich text against XSS, anti-forgery tokens with cookie auth.
+
+**Q3. How should passwords be stored?**
+> Hashed with a slow, salted algorithm designed for passwords — Argon2id, bcrypt or PBKDF2 with a high iteration count, which is what ASP.NET Core Identity uses. Never a fast hash like SHA-256, which GPUs can brute-force at billions per second, and never reversible encryption. On top: rate-limited login, MFA, and checking against breached-password lists.
+
+**Q4. How do you protect sensitive customer data like SSNs or credit information?**
+> Minimise it first — don't store what we don't need, and let the payment provider hold card data. What we keep is encrypted in transit and at rest, with column-level or application-level encryption for the most sensitive fields so even DBAs can't read them, using keys in KMS. It's masked in the UI, never logged, visible only to roles that need it, and every access is audited. And there's a retention period after which it's deleted.
+
+**Q5. Where do you keep secrets, and how does the app get them?**
+> Ideally there's no secret at all: the app authenticates to the database, storage and queues with a managed identity or IAM role. Whatever remains — third-party API keys — lives in Key Vault or Secrets Manager, loaded through the configuration provider at startup, rotated regularly, and only the app's identity can read the values. CI uses OIDC federation instead of long-lived cloud keys, and secret scanning blocks commits.
+
+### C2.9 Tự kiểm tra
+1. Trả lời câu "director có mọi secret" theo 5 lớp, nói trong 90 giây.
+2. Vì sao double-entry + đối soát bắt được việc UPDATE thẳng balance?
+3. Non-exportable key trong KMS/HSM nghĩa là gì?
+4. BOLA là gì, sửa ở tầng nào?
+5. Vì sao không dùng SHA-256 cho mật khẩu?
 
 ---
 
-## C3. Concurrency dữ liệu và idempotency ⏳
+## C3. Concurrency dữ liệu và idempotency xuyên hệ thống
 
-> ⏳ **Chưa viết lại sâu.** Dưới đây là nội dung bản cũ (số tham chiếu section bên trong là số bản cũ, xem bảng đối chiếu ở 0.2). Claude sẽ viết lại trước khi Hiệp học tới.
+**Vì sao cần.** Đây là chỗ Hiệp **hay mất điểm nhất** trong các buổi trước: lặp lỗi **check-then-act**, trả **lỗi** khi request trùng thay vì replay, chọn key quá thô (roundId), chấp nhận mất message liên quan tiền. A6 lo cơ chế trong một DB; phần này lo **nhiều request, nhiều instance, nhiều hệ thống, mạng không tin cậy**.
 
-### C3.1 Ý chốt (đây là chỗ Hiệp hay mất điểm)
-- **Lost update**: đọc-sửa-ghi trong bộ nhớ app. Chuẩn: **atomic UPDATE** `UPDATE ... SET Qty = Qty - 1 WHERE Id=@id AND Qty >= 1` (kiểm tra rowcount).
-- Thứ tự ưu tiên: **atomic UPDATE / UNIQUE constraint → optimistic concurrency (rowversion) → pessimistic lock (UPDLOCK) → distributed lock (Redis)** cuối cùng.
-- **Check-then-act** là lỗi: "SELECT xem có chưa, chưa thì INSERT" → hai request cùng qua check. Luôn nói: **"INSERT with a UNIQUE constraint in the same transaction"**; bắt lỗi 2627/2601 → coi là trùng.
-- **Idempotency key ≠ concurrency control**: key chống retry của **cùng** yêu cầu; atomic UPDATE chống các yêu cầu **khác nhau** chạy đồng thời.
-- Trùng request → **replay response cũ**, không trả lỗi.
-- Key chọn đúng độ mịn: transaction reference của provider (không phải roundId); `(playerId, questId, period)` cho thưởng lặp.
-- Giữ key: API client ~24h; ledger tiền giữ vĩnh viễn.
-- Redis lock không có **fencing token** → process bị dừng lâu vẫn ghi sau khi lock hết hạn → DB phải là trọng tài cuối.
-- Double submit trên web: disable nút + PRG (MVC) + Idempotency-Key (API) + UNIQUE ở DB.
+### C3.1 Hai vấn đề khác nhau — đừng gộp
+| | **Concurrency control** | **Idempotency** |
+|---|---|---|
+| Chống | Các **yêu cầu khác nhau** chạy đồng thời đụng nhau | **Cùng một yêu cầu** đến nhiều lần (retry, double click, webhook gửi lại, queue at-least-once) |
+| Ví dụ | Spin và claim reward cùng lúc trên một ví | Pragmatic gửi lại `bet` vì timeout |
+| Công cụ | Atomic UPDATE, rowversion, UPDLOCK, single-writer queue | Idempotency key + **UNIQUE constraint**, replay response |
+Cần **cả hai**: idempotency key không ngăn được hai spin khác nhau làm âm ví; atomic UPDATE không ngăn được cùng một bet bị trừ hai lần.
 
-### C3.2 Câu mẫu
-> The database should decide who wins a race, not application code. For a one-off action like creating an order from a quote, I'd put a unique constraint on the quote ID in the orders table and insert in the same transaction as the rest of the work, so a double click or a retry simply hits the constraint and we return the order that already exists. For updates like stock or capacity, I'd use an atomic conditional UPDATE and check the row count. A distributed lock is my last resort, because it doesn't protect you if a process pauses past the lock's expiry.
+### C3.2 Check-then-act — vì sao sai, kể cả trong transaction
+```csharp
+// SAI
+if (!await _db.Claims.AnyAsync(c => c.Key == key))   // (1) kiểm tra
+{
+    _db.Claims.Add(new Claim(key, ...));             // (2) hành động
+    wallet.Credit(reward);
+    await _db.SaveChangesAsync();
+}
+```
+Timeline hai request trùng cách nhau 3 ms:
+```
+t=0  A: SELECT → chưa có
+t=1  B: SELECT → chưa có        (Read Committed: S lock nhả ngay, không chặn)
+t=2  A: INSERT + cộng tiền, commit
+t=3  B: INSERT + cộng tiền, commit   → cộng 2 lần
+```
+Bọc transaction **không cứu** ở Read Committed (A6.3). Đúng: **để DB quyết định bằng UNIQUE**:
+```csharp
+_db.Claims.Add(new Claim(key, ...));          // UNIQUE(Key)
+wallet.Credit(reward);                        // cùng transaction
+try { await _db.SaveChangesAsync(ct); }
+catch (DbUpdateException e) when (e.InnerException is SqlException { Number: 2627 or 2601 })
+{
+    return await ReplayAsync(key, ct);        // request trùng → trả lại kết quả lần đầu
+}
+```
+Câu phải nói thuộc lòng: **"INSERT the idempotency key with a UNIQUE constraint in the same transaction as the side effect."**
 
-### C3.3 Câu hỏi luyện
-1. Two requests try to decrement the same inventory at the same time. What happens and how do you fix it?
-2. The same webhook arrives twice. How do you make sure the payment is applied once?
-3. A background job sometimes processes the same item twice. Why and how do you fix it?
-4. The service works with one instance but fails with five. What could be wrong? (in-memory cache/lock/state, scheduled job chạy 5 lần, session cục bộ, file cục bộ)
-5. Optimistic vs pessimistic locking — when each?
-6. When would you use a distributed lock? What's wrong with Redis locks?
-7. Your API receives the same request twice. What do you do?
-8. How do you prevent a user from submitting an order twice?
+### C3.3 Thiết kế idempotency key
+- **Key = danh tính của ý định**, đúng độ mịn:
+  - Callback ví: **transaction reference của provider** (scoped theo provider), **không phải `roundId`** (một round có bet, result, free spin, refund).
+  - Thưởng lặp: `(playerId, questId, period)` — quest ngày/tuần cần `period`.
+  - API client: header `Idempotency-Key` (UUID do client sinh) scoped theo user.
+  - Thông báo: `(deliveryId, notificationType, scheduleVersion)` — đổi lịch thì version mới, được gửi lại.
+- **Trùng thì replay**: trả **đúng response lần đầu** (thành công, cùng transaction id, số dư hiện tại). Trả lỗi → provider tưởng thất bại → refund/khiếu nại → lệch tiền.
+- **Giữ bao lâu**: ít nhất bằng **cửa sổ retry + đối soát** của bên gửi; API client ~24 h; **ledger tiền giữ vĩnh viễn** (chính nó là bản ghi).
+- **Thứ tự sai**: refund đến **trước** bet → ghi **tombstone** ("đã refund reference X"), trả thành công không đổi tiền; bet đến sau thấy tombstone → từ chối.
+
+### C3.4 Thứ tự ưu tiên khi chống race (nói theo đúng thứ tự này)
+1. **Ràng buộc DB**: UNIQUE, CHECK (`Balance >= 0`), FK.
+2. **Atomic conditional UPDATE** (`WHERE Balance >= @x`, `WHERE Booked < Capacity`, `WHERE Status = 'Available'`).
+3. **Optimistic concurrency** (rowversion) khi có think-time.
+4. **Pessimistic lock** (`UPDLOCK`) khi logic nhiều bước, tranh chấp cao.
+5. **Single-writer**: queue có phân vùng theo key (Service Bus **session** = playerId, SQS FIFO **message group**) → mỗi player một consumer tại một lúc, đúng thứ tự. Không hợp cho callback cần trả kết quả ngay.
+6. **Distributed lock** (Redis) — **cuối cùng**, chỉ khi không có dòng DB chung để khoá.
+
+### C3.5 Distributed lock và fencing token
+- Redis lock: `SET lock:player:42 <random> NX PX 10000` → giữ 10 s; nhả bằng script kiểm `value` khớp rồi mới `DEL`. **RedLock** = lấy lock trên đa số N node Redis độc lập.
+- **Vấn đề không giải được bằng lock thuần**: process A lấy lock (TTL 10 s) → bị **GC pause / VM bị treo / mạng chậm** 15 s → lock hết hạn → B lấy lock, ghi → A tỉnh dậy **vẫn tưởng mình giữ lock**, ghi đè. (Martin Kleppmann, *How to do distributed locking*; DDIA chương 8.)
+- **Fencing token**: mỗi lần cấp lock kèm số tăng dần (33, 34…); nơi lưu dữ liệu từ chối ghi có token nhỏ hơn token đã thấy. Redis lock không tự có → **DB phải là trọng tài cuối** (UNIQUE, version check). Lock chỉ để **giảm tranh chấp/hiệu năng**, không phải để đảm bảo đúng.
+- PlaySweeps (thật): Redis lock cho spin theo (player, game) dạng `TryLock` fail-fast, deposit/redemption theo transaction, PrizeOut theo player; Quest Engine dùng RedLock + idempotency key cho claim. Tự phản biện (Senior): đọc balance trước khi lấy lock, lock không bao hết mọi đường ghi, không fencing token → sẽ đặt DB làm trọng tài.
+
+### C3.6 "Chạy 1 instance thì đúng, 5 instance thì sai" — checklist
+- `lock`/`SemaphoreSlim`/`static` dictionary trong RAM → mỗi instance một bản.
+- `IMemoryCache` làm "nguồn sự thật" → mỗi instance thấy khác.
+- Job định kỳ chạy 5 lần (BackgroundService trên mỗi instance).
+- Session/file lưu cục bộ → request sang instance khác mất.
+- Rate limit trong RAM → giới hạn thực tế ×5.
+- Data Protection key không chia sẻ → cookie lỗi (C1.6).
+
+### C3.7 Xuyên hệ thống: dual write và outbox
+- "Lưu DB rồi gửi message": crash giữa hai bước → **DB có, message mất** (thưởng không bao giờ được cộng = mất tiền của user). Gửi trước rồi lưu: message có, DB không. Đây là **dual write problem**.
+- Giải: **Transactional Outbox** — ghi dữ liệu + bản ghi outbox **cùng transaction**; relay gửi sau (at-least-once) → consumer **idempotent** (inbox/UNIQUE). Chi tiết C5. Không nhầm với **Mediator** (in-process).
+
+### C3.8 Double submit trên web — nhiều lớp
+UI disable nút → PRG (MVC) → `Idempotency-Key` (API) → **UNIQUE ở DB** (lớp duy nhất thật sự đảm bảo).
+
+### C3.9 Câu hỏi phỏng vấn & trả lời mẫu
+
+**Q1. The same webhook arrives twice. How do you make sure the payment is applied once?**
+> The payment's event ID — or the provider's transaction reference — is the idempotency key. In one transaction I insert it into a processed-events table with a unique constraint and apply the ledger entry. If the insert hits the constraint, it's a duplicate, so I return the same success response as the first time without applying anything. I never check "does it exist" first in a separate step, because two deliveries a few milliseconds apart would both pass the check.
+
+**Q2. Two requests decrement the same inventory at the same time. What happens and how do you fix it?**
+> If the code reads the quantity, subtracts in memory and writes it back, both read the same value and one update is lost — or we oversell. The fix is to let the database check and update atomically: `UPDATE Stock SET Qty = Qty - 1 WHERE Id = @id AND Qty >= 1`, then look at the row count. The second request waits on the row lock and then re-evaluates the condition against the committed value.
+
+**Q3. When would you use a distributed lock? What's wrong with Redis locks?**
+> Only when there's no single database row to protect, for example state spread across Cosmos DB documents like our quest progress. The weakness is that a lock with a TTL can expire while its holder is paused — a long GC or a network stall — so two processes believe they hold it. Without a fencing token checked by the storage layer, that can corrupt data. So I treat the lock as a performance optimisation and keep the database as the arbiter, with unique constraints or version checks.
+
+**Q4. A background job sometimes processes the same item twice. Why?**
+> Most queues and schedulers are at-least-once: a message becomes visible again if processing exceeds the visibility timeout or the worker crashes before acknowledging, and scheduled jobs run on every instance unless coordinated. I'd make the handler idempotent with a key stored under a unique constraint in the same transaction as the work, and fix the trigger — a longer visibility timeout, or a single scheduler.
+
+**Q5. Idempotency key vs concurrency control — aren't they the same?**
+> No. An idempotency key stops the same request from having an effect twice — retries, double clicks, redelivered messages. Concurrency control stops different requests from corrupting shared state — two different spins draining the same wallet. A payment flow needs both: a unique transaction ID and an atomic balance update in the same transaction.
+
+### C3.10 Tự kiểm tra
+1. Vẽ timeline check-then-act và giải thích vì sao transaction Read Committed không cứu.
+2. Chọn key idempotency cho: callback bet, thưởng quest tuần, SMS nhắc giao hàng.
+3. Request trùng thì trả gì? Vì sao không trả lỗi?
+4. Fencing token giải quyết gì mà RedLock không giải quyết?
+5. Kể 4 thứ hỏng khi đi từ 1 lên 5 instance.
 
 ---
 
