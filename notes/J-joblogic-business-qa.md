@@ -33,13 +33,55 @@ Nếu Hiệp còn làm phần quote nào khác chưa có trong `context/joblogic
 
 Thứ tự kể khi được hỏi "What did you do at Joblogic?": **A + B gộp thành một câu chuyện** (đều thuộc ticket Customer Contract, Proj62), rồi C, rồi D. Chỉ kể 2 feature trong câu đầu, để interviewer chọn đào sâu.
 
-**Câu giới thiệu (Hiệp chốt 2026-11-09: chỉ nêu feature, không đi chi tiết; mỗi feature cài một "móc" để interviewer hỏi sang tech liên quan Ops Hub):**
-> At Joblogic, a UK field-service SaaS, I worked part-time on the Projects and Jobs modules, using ASP.NET MVC and a .NET microservice platform on Azure. The main features I delivered were: linking customer contracts to projects and quotes, with an audit trail, available only to tenants subscribed to that module; extending the quote, invoice and payment-application documents that are generated as PDFs from each tenant's template; a cost breakdown that compares a project's quoted estimate with its actual cost and margin; and a job spend limit, with notifications to the office and editing from the customer portal.
+### Giới thiệu bản thân (bản chốt 2026-11-09)
+Hiệp chốt: **không kể mình làm feature gì**. Chỉ nói Joblogic là sản phẩm gì, giải bài toán nghiệp vụ gì, để interviewer tự hỏi. Feature chi tiết (mục A–D) chỉ dùng khi bị hỏi tiếp.
 
-Bản ngắn (15 giây): *"…I delivered customer contracts on projects and quotes with an audit trail, the quote and invoice PDF documents, a project cost breakdown with margin, and a job spend limit with notifications."*
+> I'm Hiep, a full-stack developer with about four years of experience, strongest on the .NET backend. Most recently I worked on PlaySweeps, a US sweepstakes gaming platform, on .NET 8, SQL Server and Azure.
+> In parallel, I worked part-time for **Joblogic**, a UK SaaS for **field-service companies** — businesses that send engineers out to do maintenance, repairs and installations. Joblogic runs their whole operation: **quoting the customer, running the work as jobs and projects, scheduling engineers who use a mobile app on site, tracking costs, and invoicing**, plus a portal where their own customers follow the work. It's multi-tenant, so every company has its own settings, document templates and subscription.
+> The business problems I worked on were around **quotes, contracts, costs and billing** — keeping a project profitable against what was quoted, billing long projects in stages, and controlling spend against what the customer approved.
+> That's why the Ops Hub interests me: quote, order, contract, production and delivery is a very similar flow.
 
-| Móc trong câu | Câu tech dễ bị hỏi tiếp | Ôn ở |
-|---|---|---|
+### Câu hỏi dễ bị hỏi tiếp và trả lời ngắn
+
+**1. What does a field-service company actually do in Joblogic, day to day?**
+> The office receives a request, quotes it, creates a job, schedules an engineer, the engineer does the visit with the mobile app — time, parts, photos, customer signature — and the office invoices. Bigger work is run as a project with several jobs and staged billing.
+
+**2. Who are the users?**
+> Three groups: office staff in the web back office, engineers on the mobile app, and the company's own customers on the customer portal. Each has its own login and permissions.
+
+**3. Walk me through quote to invoice.**
+> A quote lists what will be done, with costs and selling prices. **[Hiệp xác nhận: quote được chấp nhận thì chuyển thành job/project thế nào]**. During the work, actual costs come in from engineers' time, materials and purchase orders. Billing is either one invoice at the end, or for long projects staged applications for payment, where each one shows the value to date, what was already claimed, and what's due now.
+
+**4. Why is "profitable against what was quoted" hard?**
+> Because the quote is an estimate and reality drifts: more labour hours, extra materials, subcontractors. The manager needs to see estimated versus actual per cost type while the project is still running, not after the final invoice. Example: quoted margin 20%, actual drifting to 12% because labour is 25% over.
+
+**5. What does "spend the customer approved" mean?**
+> Customers often authorise a job up to a limit, say £500. If the contractor goes over without approval, the customer can refuse to pay the extra. So the system has to warn the office before a visit goes over, across several visits — the second visit compares against what's left, not the full limit.
+
+**6. (SA) How is it built?**
+> ASP.NET Core MVC web app and portal, a mobile app, and around thirty backend services on Azure Functions talking through HTTP for queries and Azure Service Bus for commands and events. SQL Server sharded by tenant, MongoDB for audit, Redis, Blob storage. The platform was already there; I delivered features on it. (Đào sâu: `notes/J-joblogic-architecture.md`.)
+
+**7. (SA) How is multi-tenancy handled?**
+> Every request carries the tenant; a middleware resolves the tenant's shard and checks the tenant is active. In the database, the session context holds the tenant ID, reads go through views filtered by it, and row-level security blocks writes to another tenant. Features are enabled per subscription. (Đào sâu: `notes/J-multitenant-deep.md`.)
+
+**8. How are documents like quotes and invoices produced?**
+> Each company designs its own Word template with tags; a document service fills the tags with data calculated by the core service and converts to PDF. If the company has no template, a system template is used. (Đào sâu: mục A.)
+
+**9. What happens when the office changes something after an engineer already has the job on their phone?**
+> The data on the device is a snapshot, so the visit has to be redeployed; the system flags it as "redeploy required". Same idea for any offline client: track what version the device has.
+
+**10. Which business problem was the hardest?** → chọn một: staged billing (mục A) hoặc spend limit (mục D). Lúc này mới kể chi tiết mình làm.
+
+**11. (PO) You worked part-time there while at PlaySweeps. How did you manage?**
+> **[Hiệp điền]**: số giờ/tuần, làm qua công ty nào (không cần nêu tên HMT), cách giữ chất lượng. Mẫu: *"It was a fixed number of hours a week, mostly evenings, with clear tickets and async communication with the UK team. I only took work I could finish properly, and PlaySweeps stayed my main job."*
+
+**12. How did you work with the UK team?**
+> **[Hiệp điền]** (xem mục F).
+
+**13. How does this help with the Ops Hub?**
+> Same kind of product: business documents, money, approvals, different settings per company, and people in the field using a mobile app. I'm used to reading requirements through real scenarios and making sure what the customer sees on a PDF matches the system.
+
+---|---|---|
 | audit trail | Audit đồng bộ hay async? version/thứ tự? mất message? | mục B Q2 |
 | only to tenants subscribed | Multi-tenant, feature gating ở UI hay server? | mục B Q3, `J-multitenant-deep.md` |
 | PDFs from each tenant's template | Pipeline sinh PDF, chậm thì sao (202 + background), link tải bảo mật, tài liệu đã ký không đổi | mục A Q1, Q4–Q6 |
