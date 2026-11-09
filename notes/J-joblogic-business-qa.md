@@ -33,8 +33,20 @@ Nếu Hiệp còn làm phần quote nào khác chưa có trong `context/joblogic
 
 Thứ tự kể khi được hỏi "What did you do at Joblogic?": **A + B gộp thành một câu chuyện** (đều thuộc ticket Customer Contract, Proj62), rồi C, rồi D. Chỉ kể 2 feature trong câu đầu, để interviewer chọn đào sâu.
 
-**Câu mở (30 giây):**
-> At Joblogic, a UK field-service management SaaS, I worked part-time in the Projects and Jobs modules. The work I'm most proud of is around project quotes and billing: I linked customer contracts to projects and quotes, with an audit trail, and extended the quote, invoice and application-for-payment documents, including the "previously claimed" logic for staged billing. I also built the cost breakdown that compares a project's quoted estimate with actual cost, and a spend-limit check for jobs. Happy to go deeper into any of them.
+**Câu giới thiệu (Hiệp chốt 2026-11-09: chỉ nêu feature, không đi chi tiết; mỗi feature cài một "móc" để interviewer hỏi sang tech liên quan Ops Hub):**
+> At Joblogic, a UK field-service SaaS, I worked part-time on the Projects and Jobs modules, using ASP.NET MVC and a .NET microservice platform on Azure. The main features I delivered were: linking customer contracts to projects and quotes, with an audit trail, available only to tenants subscribed to that module; extending the quote, invoice and payment-application documents that are generated as PDFs from each tenant's template; a cost breakdown that compares a project's quoted estimate with its actual cost and margin; and a job spend limit, with notifications to the office and editing from the customer portal.
+
+Bản ngắn (15 giây): *"…I delivered customer contracts on projects and quotes with an audit trail, the quote and invoice PDF documents, a project cost breakdown with margin, and a job spend limit with notifications."*
+
+| Móc trong câu | Câu tech dễ bị hỏi tiếp | Ôn ở |
+|---|---|---|
+| audit trail | Audit đồng bộ hay async? version/thứ tự? mất message? | mục B Q2 |
+| only to tenants subscribed | Multi-tenant, feature gating ở UI hay server? | mục B Q3, `J-multitenant-deep.md` |
+| PDFs from each tenant's template | Pipeline sinh PDF, chậm thì sao (202 + background), link tải bảo mật, tài liệu đã ký không đổi | mục A Q1, Q4–Q6 |
+| quoted estimate, actual cost and margin | decimal/làm tròn, markup vs margin, đa tiền tệ, query tổng hợp chậm | mục C |
+| notifications to the office | Message queue, at-least-once, idempotency, fan-out | mục D Q3 |
+| customer portal | Phân quyền, 2 người sửa cùng lúc (optimistic concurrency) | mục D Q4–Q5 |
+| ASP.NET MVC, microservice on Azure | MVC pipeline, monolith vs microservice cho Ops Hub, Azure → AWS | master B-sections |
 
 ---
 
