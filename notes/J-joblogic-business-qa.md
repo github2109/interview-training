@@ -225,5 +225,5 @@ Follow-up "shift crosses midnight?" → *"Split it into two intervals at midnigh
 5. Spend Limit: **visit 2+ so với phần còn lại**, **RedeployRequired**, thông báo idempotent.
 
 ## H. Việc Hiệp cần làm
-- Điền các chỗ **[Hiệp điền] / [Hiệp xác nhận]** (khoảng 12 chỗ). Chỗ nào không nhớ thì xoá câu đó, không đoán.
+- Điền các chỗ **[Hiệp điền] / [Hiệp xác nhận]** (17 chỗ). Chỗ nào không nhớ thì xoá câu đó, không đoán.
 - Tập nói to mục 1 (câu mở) và câu chuyện 60 giây của A và D.
